@@ -1,0 +1,21 @@
+{
+	"normal": {
+		"Fullart Modular": "FullArtModularTemplate",
+		"Fullart Textlesss": "FullArtTextlessTemplate"
+	},
+	"basic": {
+		"Fullart Modular": "BasicModularTemplate"
+	},
+	"transform_front": {
+		"Fullart Modular": "DFCModularTemplate"
+	},
+	"transform_back": {
+		"Fullart Modular": "DFCModularTemplate"
+	},
+	"mdfc_front": {
+		"Fullart Modular": "DFCModularTemplate"
+	},
+	"mdfc_back": {
+		"Fullart Modular": "DFCModularTemplate"
+	}
+}
