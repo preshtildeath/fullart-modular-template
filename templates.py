@@ -181,7 +181,7 @@ class FullArtModularTemplate (temp.BaseTemplate):
             os.rename(self.file, f'{fin_path}/{new_name}{ext}')
             print(f"{new_name}{ext} moved successfully!")
         except: console.update('Problem occurred moving art file.')
-        console.end_wait()
+        console.end_await()
         return True
 
     def text_layers(self):
@@ -202,9 +202,9 @@ class FullArtModularTemplate (temp.BaseTemplate):
         
         # Move typeline and modify textbox reference and text outlines if certain criteria is met
         scale = tools.dirty_text_scale( self.layout.oracle_text )
-        if scale > 8: modifier = -320
-        elif scale > 5: modifier = -160
-        elif scale <= 0: modifier = 480
+        if scale > 9: modifier = -320
+        elif scale > 6: modifier = -160
+        elif scale == 0: modifier = 480
         elif scale <= 1: modifier = 240
         elif scale <= 3: modifier = 160
         else: modifier = 0
@@ -212,10 +212,12 @@ class FullArtModularTemplate (temp.BaseTemplate):
         # Set artist info
         artist_text = psd.getLayer('Artist', 'Text and Icons').textItem
         artist_text.contents = self.layout.artist
+        
         # Do the mana cost
         if len(self.layout.mana_cost) > 0:
             mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
         else: mana_layer = tools.empty_mana_cost(mana_layer)
+        
         # Name and type text
         self.tx_layers.extend([
             txt_layers.ScaledTextField(
@@ -231,6 +233,7 @@ class FullArtModularTemplate (temp.BaseTemplate):
                 reference_layer = exp_layer
             )
         ])
+        
         if self.is_creature:        
             # Center the rules text if the text is at most two lines
             is_centered = bool( scale <= 2)
@@ -275,9 +278,11 @@ class FullArtModularTemplate (temp.BaseTemplate):
                     fix_length = False
                 )
             )
+            
         # Apply typeline translate and textbox stretch
         type_layer.translate( 0, modifier )
         tools.layer_vert_stretch( textbox_ref, modifier, 'bottom' )
+        
         # Set symbol
         set_pdf = tools.get_set_pdf(self.layout.set)
         tools.get_expansion(

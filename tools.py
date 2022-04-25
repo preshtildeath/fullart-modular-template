@@ -122,7 +122,7 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     """
     prev_active_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
-    max_size = reference_layer.bounds[2] - reference_layer.bounds[0]
+    max_size = (reference_layer.bounds[2] - reference_layer.bounds[0]) * 5
     pdf_open(set_pdf, max_size)
     # note context switch to art file
     app.activeDocument.selection.selectAll()
@@ -349,10 +349,10 @@ def layer_mask_select (layer):
         chnl,
         app.charIDToTypeID( "Msk " )
         )
-    ref_mask.putName(
-        app.charIDToTypeID( "Lyr " ),
-        layer.name
-        )
+##    ref_mask.putName(
+##        app.charIDToTypeID( "Lyr " ),
+##        layer.name
+##        )
     desc_mask.putReference(
         app.charIDToTypeID( "null" ),
         ref_mask

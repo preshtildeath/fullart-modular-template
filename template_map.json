@@ -3,6 +3,9 @@
 		"Fullart Modular": "FullArtModularTemplate",
 		"Fullart Textlesss": "FullArtTextlessTemplate"
 	},
+	"ixalan": {
+		"Fullart Modular": "DFCModularTemplate"
+	},
 	"basic": {
 		"Fullart Modular": "BasicModularTemplate"
 	},
