@@ -2,6 +2,7 @@
 PRESHTILDEATH TEMPLATES
 """
 import os
+import sys
 import tools
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
@@ -14,9 +15,12 @@ from proxyshop import format_text, gui
 console = gui.console_handler
 app = ps.Application()
 
+print(sys.path)
+
 # Ensure scaling with pixels, font size with points
 app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
+
 
 class FullArtModularTemplate (temp.BaseTemplate):
     """
@@ -40,48 +44,21 @@ class FullArtModularTemplate (temp.BaseTemplate):
         app.load(self.file_path)
         # TODO: if that's the file that's currently open, reset instead of opening?
 
-    def load_artwork (self):
-        """
-         * Loads the specified art file into the specified layer.
-        """
-        psd.paste_file(self.art_layer, self.file)
-
     def __init__ (self, layout, file):
-        console.update(str(con.cwd))
-
-        # Setup inherited info, tx_layers, template PSD
-        self.failed = False
-        self.layout = layout
-        self.file = file
-        self.tx_layers = []
-        
-        try: self.load_template()
-        except Exception as e:
-            result = console.log_error(
-                "PSD not found! Make sure to download the photoshop templates!",
-                self.layout.name,
-                self.template_file_name(),
-                e
-                )
-
-        self.art_layer = psd.getLayer('Layer 1')
-
-        # set stroke size
+        # set config
         cfg.symbol_stroke = 4
+        cfg.fill_symbol = True
+        cfg.remove_flavor = True
+        cfg.remove_reminder = True
+        cfg.real_collector = False
+        
+        super().__init__(layout, file)
 
         # define some characteristics
-        try: self.is_creature = bool(self.layout.power and self.layout.toughness)
-        except: self.is_creature = False
-        try: self.is_legendary = bool(self.layout.type_line.find("Legendary") >= 0)
-        except: self.is_legendary = False
-        try: self.is_land = bool(self.layout.type_line.find("Land") >= 0)
-        except: self.is_land = False
         try: self.is_basic = self.is_basic
         except: self.is_basic = False
         
         # rip out the flavor and reminder texts
-        layout.no_collector = True
-        layout.flavor_text = ""
         if not self.is_basic:
             layout.oracle_text = format_text.strip_reminder_text(layout.oracle_text)
                 
@@ -116,6 +93,7 @@ class FullArtModularTemplate (temp.BaseTemplate):
                 e
             )
             return result
+
         # Input and format each text layer
         try:
             console.update("Formatting text...")
@@ -132,7 +110,7 @@ class FullArtModularTemplate (temp.BaseTemplate):
 
         # Exit early defined?
         try: self.exit_early
-        except: self.exit_early = False
+        except Exception: self.exit_early = False
 
         # Manual edit step?
         if self.exit_early or cfg.exit_early:
@@ -176,12 +154,12 @@ class FullArtModularTemplate (temp.BaseTemplate):
                 f'{self.layout.name} ({self.layout.artist}) [{self.layout.set}]',
                 ext )
             os.rename(self.file, f'{fin_path}/{new_name}{ext}')
-            console.update(f"{new_name}{ext} moved successfully!")
+            print(f"{new_name}{ext} moved successfully!")
         except: console.update('Problem occurred moving art file.')
-        console.end_wait()
+        console.end_await()
         return True
 
-    def text_layers (self):
+    def text_layers(self):
         """
          * Set up the card's mana cost, name (scaled to not overlap with mana cost), expansion symbol, and type line
          * (scaled to not overlap with the expansion symbol).
@@ -190,8 +168,8 @@ class FullArtModularTemplate (temp.BaseTemplate):
         mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
         exp_layer = psd.getLayer('Expansion Symbol',
-                                       psd.getLayerSet('Expansion', 'Text and Icons')
-                                       )
+            psd.getLayerSet('Expansion', 'Text and Icons')
+        )
         exp_ref = psd.getLayer('Expansion', 'Ref')
         type_layer = psd.getLayer('Typeline', 'Text and Icons')
         text_box = psd.getLayer('Base', 'Textbox')
@@ -199,9 +177,9 @@ class FullArtModularTemplate (temp.BaseTemplate):
         
         # Move typeline and modify textbox reference and text outlines if certain criteria is met
         scale = tools.dirty_text_scale( self.layout.oracle_text )
-        if scale > 8: modifier = -320
-        elif scale > 5: modifier = -160
-        elif scale <= 0: modifier = 480
+        if scale > 9: modifier = -320
+        elif scale > 6: modifier = -160
+        elif scale == 0: modifier = 480
         elif scale <= 1: modifier = 240
         elif scale <= 3: modifier = 160
         else: modifier = 0
@@ -209,10 +187,12 @@ class FullArtModularTemplate (temp.BaseTemplate):
         # Set artist info
         artist_text = psd.getLayer('Artist', 'Text and Icons').textItem
         artist_text.contents = self.layout.artist
+        
         # Do the mana cost
         if len(self.layout.mana_cost) > 0:
             mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
         else: mana_layer = tools.empty_mana_cost(mana_layer)
+        
         # Name and type text
         self.tx_layers.extend([
             txt_layers.ScaledTextField(
@@ -228,6 +208,7 @@ class FullArtModularTemplate (temp.BaseTemplate):
                 reference_layer = exp_layer
             )
         ])
+        
         if self.is_creature:        
             # Center the rules text if the text is at most two lines
             is_centered = bool( scale <= 2)
@@ -272,9 +253,11 @@ class FullArtModularTemplate (temp.BaseTemplate):
                     fix_length = False
                 )
             )
+            
         # Apply typeline translate and textbox stretch
         type_layer.translate( 0, modifier )
         tools.layer_vert_stretch( textbox_ref, modifier, 'bottom' )
+        
         # Set symbol
         set_pdf = tools.get_set_pdf(self.layout.set)
         tools.get_expansion(

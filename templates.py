@@ -179,12 +179,12 @@ class FullArtModularTemplate (temp.BaseTemplate):
                 f'{self.layout.name} ({self.layout.artist}) [{self.layout.set}]',
                 ext )
             os.rename(self.file, f'{fin_path}/{new_name}{ext}')
-            print(f"{new_name}{ext} moved successfully!")
+            console.update(f"{new_name}{ext} moved successfully!")
         except: console.update('Problem occurred moving art file.')
         console.end_await()
         return True
 
-    def text_layers(self):
+    def text_layers (self):
         """
          * Set up the card's mana cost, name (scaled to not overlap with mana cost), expansion symbol, and type line
          * (scaled to not overlap with the expansion symbol).
