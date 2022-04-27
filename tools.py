@@ -13,7 +13,7 @@ from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 app = ps.Application()
 
-#
+# the whole ass mana cost
 def mana_cost_render(layer_set, mana_cost):
     burngrey = ps.SolidColor()
     burngrey.rgb.red = burngrey.rgb.green = burngrey.rgb.blue = 150
@@ -31,48 +31,49 @@ def mana_cost_render(layer_set, mana_cost):
     ]
     card_doc = app.activeDocument
     symb_doc = app.open(f'{con.cwd}/templates/preshtildeath/mana.png')
-    cost_lookup = mana_cost[1:-1].split('}{')
+    cost_lookup = mana_cost[1:-1].split('}{').reverse()
+    i = 110
     # Go through the symbols from right to left
     for r in range(len(cost_lookup)):
-        for x in range(len(sym_lookup)):
-            for y in range(len(sym_lookup[x])):
-                if cost_lookup[-1] == sym_lookup[x][y]:
-                    layer = copy_from_paste_to(
-                        symb_doc,
-                        card_doc,
-                        layer_set,
-                        [x*110, y*110, (x+1)*110, (y+1)*110],
-                        [1918-((r+1)*110+r*5), 255]
-                    )
-        cost_lookup.pop()
+        for sym_row in sym_lookup:
+            if cost_lookup[r] in sym_row:
+                x = sym_lookup.index(sym_row) * i
+                y = sym_row.index(cost_lookup[r]) * i
+                layer = copy_from_paste_to(
+                    symb_doc,
+                    card_doc,
+                    layer_set,
+                    [x, y, x+i, y+i],
+                    [1918-((r+1)*i+(r*5)), 248]
+                )
+                break
+    # cleanup
     symb_doc.close(ps.SaveOptions.DoNotSaveChanges)
+    layer_styles_visible(layer_set, "on")
     layer = layer_set.merge()
+    # shadow stuff
     app.activeDocument.activeLayer = layer
-    magic_wand_select(layer, layer.bounds[0]-10, layer.bounds[1]-10)
-    app.activeDocument.selection.expand(10)
-    app.activeDocument.selection.feather(40)
+    magic_wand_select(layer, 0, 0)
+    app.activeDocument.selection.expand(20)
+    app.activeDocument.selection.feather(30)
     app.activeDocument.selection.invert()
-    magic_wand_select(layer, layer.bounds[0]-10, layer.bounds[1]-10, 'sub')
-    app.activeDocument.selection.contract(3)
     shadow_layer = app.activeDocument.artLayers.add()
-    shadow_layer.visible = True
     app.activeDocument.activeLayer = shadow_layer
     app.activeDocument.selection.fill(burngrey)
     shadow_layer.blendMode = ps.BlendMode.ColorBurn
     shadow_layer.visible = True
     shadow_layer.moveAfter(layer.parent)
     psd.clear_selection()
+    magic_wand_select(layer, 0, 0)
+    app.activeDocument.selection.contract(2)
+    app.activeDocument.selection.clear()
+    psd.clear_selection()
     return layer
                     
 def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord):
     app.activeDocument = fromdoc
-    left, top, right, bottom = copy_bounds
-    app.activeDocument.selection.select([
-        [left, top],
-        [right, top],
-        [right, bottom],
-        [left, bottom]
-    ])
+    l, t, r, b = copy_bounds
+    app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
     app.activeDocument.selection.copy()
     app.activeDocument = todoc
     app.activeDocument.activeLayer = todoc_layer_set
@@ -85,16 +86,11 @@ def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord
 def empty_mana_cost(layer_set):
     app.activeDocument.activeLayer = layer_set
     layer = app.activeDocument.artLayers.add()
-    left, top, right, bottom = [1913, 255, 1918, 365]
-    app.activeDocument.selection.select([
-        [left, top],
-        [right, top],
-        [right, bottom],
-        [left, bottom]
-    ])
+    l, t, r, b = [1913, 255, 1918, 365]
+    app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
     app.activeDocument.selection.fill(psd.rgb_black())
     psd.clear_selection()
-    layer.move(psd.getLayer('Ref'), 0)
+    layer.move(psd.getLayerSet('Ref'), 0)
     return layer
 
 def get_set_pdf(code):
@@ -122,7 +118,8 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     """
     prev_active_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
-    max_size = (reference_layer.bounds[2] - reference_layer.bounds[0]) * 5
+    # open pdf twice as big as reference just in case
+    max_size = (reference_layer.bounds[2] - reference_layer.bounds[0]) * 2
     pdf_open(set_pdf, max_size)
     # note context switch to art file
     app.activeDocument.selection.selectAll()
@@ -130,11 +127,11 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     app.activeDocument.close(ps.SaveOptions.DoNotSaveChanges)
     # note context switch back to template
     app.activeDocument.paste()
-
+    zero_transform(layer)
+    # move and resize symbol to appropriate place
     frame_expansion_symbol(layer, reference_layer)
-    
-    psd.apply_stroke(cfg.symbol_stroke, psd.rgb_white())
     fill_expansion_symbol(layer, psd.rgb_white())
+    # apply rarity mask if necessary, and center it on symbol
     if rarity != con.rarity_common:
         mask_layer = psd.getLayer(rarity, layer.parent)
         psd.select_layer_pixels(layer)
@@ -143,13 +140,12 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
         psd.align_vertical()
         psd.clear_selection()
         mask_layer.visible = True
-
     # return document to previous state
     app.activeDocument.activeLayer = prev_active_layer
 
 def fill_expansion_symbol(reference, stroke_color):
     """
-    Give the symbol a background for open space symbols (i.e. M10)
+     * Give the symbol a background for open space symbols (i.e. M10)
     """
     # Magic Wand non-contiguous outside symbol
     magic_wand_select(
@@ -174,7 +170,7 @@ def fill_expansion_symbol(reference, stroke_color):
 
     # Make a new layer
     layer = app.activeDocument.artLayers.add()
-    layer.name = "Expansion Mask"
+    layer.name ="Expansion Mask"
     layer.blendMode = ps.BlendMode.NormalBlend
     layer.visible = True
     layer.moveAfter(reference)
@@ -187,88 +183,6 @@ def fill_expansion_symbol(reference, stroke_color):
 
     # Maximum filter to keep the antialiasing normal
     layer.applyMaximum(1)
-
-# Magic Wand target layer at coordinate (X, Y)
-def magic_wand_select(layer, x, y, style='new', t=0, a=True, c=True, s=False):
-    select = {'new': 'setd', 'add': 'AddT', 'sub': 'SbtF', 'cross': 'IntW'}
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
-    coords = ps.ActionDescriptor()
-    coords.putUnitDouble(app.CharIDToTypeID( "Hrzn" ),app.CharIDToTypeID( "#Pxl" ), x )
-    coords.putUnitDouble(app.CharIDToTypeID( "Vrtc" ),app.CharIDToTypeID( "#Pxl" ), y )
-    click = ps.ActionDescriptor()
-    ref = ps.ActionReference()
-    ref.putProperty(app.CharIDToTypeID( "Chnl" ), app.CharIDToTypeID( "fsel" ) )
-    click.putReference(app.CharIDToTypeID( "null" ), ref )
-    click.putObject(app.CharIDToTypeID( "T   " ), app.CharIDToTypeID( "Pnt " ), coords )
-    click.putInteger(app.CharIDToTypeID( "Tlrn" ), t ) # Tolerance
-    click.putBoolean(app.CharIDToTypeID( "AntA" ), a ) # Anti-aliasing
-    if not c: click.putBoolean(app.CharIDToTypeID( "Cntg" ), c ) # Contiguous
-    if not s: click.putBoolean(app.CharIDToTypeID( "Mrgd" ), s ) # Sample all layers
-    app.executeAction(app.CharIDToTypeID(select[style]), click, 3 )
-    app.activeDocument.activeLayer = old_layer
-
-def paste_in_place():
-    paste = ps.ActionDescriptor()
-    paste.putBoolean(app.stringIDToTypeID( "inPlace" ), True)
-    paste.putEnumerated(
-        app.charIDToTypeID( "AntA" ),
-        app.charIDToTypeID( "Antt" ),
-        app.charIDToTypeID( "Anto" )
-        )
-    app.executeAction(app.charIDToTypeID( "past" ), paste, 3)
-
-def pdf_open(file, size):
-    """
-     * Opens a pdf scaled to (height) pixels tall
-    """
-    open_desc = ps.ActionDescriptor()
-    sett_desc = ps.ActionDescriptor()
-    sett_desc.putString( app.charIDToTypeID( "Nm  " ), "pdf" )
-    sett_desc.putEnumerated(
-        app.charIDToTypeID( "Crop" ),
-        app.stringIDToTypeID( "cropTo" ),
-        app.stringIDToTypeID( "boundingBox" )
-        )
-    sett_desc.putUnitDouble(
-        app.charIDToTypeID( "Rslt" ),
-        app.charIDToTypeID( "#Rsl" ),
-        800.000000
-        )
-    sett_desc.putEnumerated(
-        app.charIDToTypeID( "Md  " ),
-        app.charIDToTypeID( "ClrS" ),
-        app.charIDToTypeID( "RGBC" )
-        )
-    sett_desc.putInteger( app.charIDToTypeID( "Dpth" ), 8 )
-    sett_desc.putBoolean( app.charIDToTypeID( "AntA" ), True )
-    sett_desc.putUnitDouble(
-        app.charIDToTypeID( "Wdth" ),
-        app.charIDToTypeID( "#Pxl" ),
-        size
-        )
-    sett_desc.putUnitDouble(
-        app.charIDToTypeID( "Hght" ),
-        app.charIDToTypeID( "#Pxl" ),
-        size
-        )
-    sett_desc.putBoolean( app.charIDToTypeID( "CnsP" ), True )
-    sett_desc.putBoolean( app.stringIDToTypeID( "suppressWarnings" ), True )
-    sett_desc.putBoolean( app.charIDToTypeID( "Rvrs" ), True )
-    sett_desc.putEnumerated(
-        app.charIDToTypeID( "fsel" ),
-        app.stringIDToTypeID( "pdfSelection" ),
-        app.stringIDToTypeID( "page" )
-        )
-    sett_desc.putInteger( app.charIDToTypeID( "PgNm" ), 1 )
-    open_desc.putObject(
-        app.charIDToTypeID( "As  " ),
-        app.charIDToTypeID( "PDFG" ),
-        sett_desc
-        )
-    open_desc.putPath( app.charIDToTypeID( "null" ), file )
-    open_desc.putInteger( app.charIDToTypeID( "DocI" ), 727 )
-    app.executeAction( app.charIDToTypeID( "Opn " ), open_desc, 3 )
 
 # Get width and height of paragraph text box
 def get_text_bounding_box(layer):
@@ -317,7 +231,7 @@ def dirty_text_scale (input_text):
     if input_text.count('\n') >= 3: line_count += 1
     lines = input_text.split('\n')
     for line in lines:
-        line_count += math.ceil( len(line) / 36 )
+        line_count += math.ceil(len(line) / 36)
     return line_count
 
 # Stretches a layer by (-modifier) pixels
@@ -326,7 +240,6 @@ def layer_vert_stretch(layer, modifier, anchor='bottom'):
     height = layer.bounds[3] - layer.bounds[1]
     h_perc = (height - modifier) / height * 100
     layer.resize(100, h_perc, anchor_set[anchor])
-    return h_perc, anchor_set[anchor]
 
 # Rearranges two color layers in order and applies mask
 def wubrg_layer_sort (color_pair, layers):
@@ -337,29 +250,6 @@ def wubrg_layer_sort (color_pair, layers):
     psd.enable_active_layer_mask()
     top.visible = True
     bottom.visible = True
-
-# Selects the layer mask for editing
-def layer_mask_select (layer):
-    app.activeDocument.activeLayer = layer
-    desc_mask = ps.ActionDescriptor()
-    ref_mask = ps.ActionReference()
-    chnl = app.CharIDToTypeID( "Chnl" )
-    ref_mask.putEnumerated(
-        chnl,
-        chnl,
-        app.charIDToTypeID( "Msk " )
-        )
-##    ref_mask.putName(
-##        app.charIDToTypeID( "Lyr " ),
-##        layer.name
-##        )
-    desc_mask.putReference(
-        app.charIDToTypeID( "null" ),
-        ref_mask
-        )
-    desc_mask.putBoolean( app.CharIDToTypeID( "MkVs" ), True )
-    app.executeAction( app.CharIDToTypeID( "slct" ), desc_mask, 3 )
-    return
 
 # Select a layer's pixels and adds them to the selection
 def add_select_layer (layer):
@@ -374,3 +264,171 @@ def add_select_layer (layer):
         [right, bottom],
         [left, bottom]
     ], 2)
+
+def paste_file(layer, file):
+    """
+     * Pastes the given file into the specified layer.
+    """
+    prev_active_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+    app.load(file)
+    # note context switch to art file
+    app.activeDocument.selection.selectAll()
+    app.activeDocument.selection.copy()
+    app.activeDocument.close(ps.SaveOptions.DoNotSaveChanges)
+    # note context switch back to template
+    app.activeDocument.paste()
+
+    # return document to previous state
+    app.activeDocument.activeLayer =prev_active_layer
+
+"""
+HERE LIES ALL THE COMPLICATED BULLSHIT THAT MAKES LITTLE SENSE
+"""
+
+# define these because otherwise they take up so many characters
+def cTID(char):
+    return app.charIDToTypeID(char)
+
+def sTID(string):
+    return app.stringIDToTypeID(string)
+
+# Selects the layer mask for editing
+def layer_mask_select (layer):
+    app.activeDocument.activeLayer = layer
+    desc_mask = ps.ActionDescriptor()
+    ref_mask = ps.ActionReference()
+    chnl = cTID("Chnl")
+    ref_mask.putEnumerated(chnl, chnl, cTID("Msk "))
+    desc_mask.putReference(cTID("null"), ref_mask)
+    desc_mask.putBoolean(cTID("MkVs"), True)
+    app.executeAction(cTID("slct"), desc_mask, 3)
+    return
+
+# Magic Wand target layer at coordinate (X, Y)
+def magic_wand_select(layer, x, y, style='new', t=0, a=True, c=True, s=False):
+    select_key = {'new': 'setd', 'add': 'AddT', 'sub': 'SbtF', 'cross': 'IntW'}
+    old_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+    coords = ps.ActionDescriptor()
+    coords.putUnitDouble(cTID("Hrzn"), cTID("#Pxl"), x)
+    coords.putUnitDouble(cTID("Vrtc"), cTID("#Pxl"), y)
+    click = ps.ActionDescriptor()
+    ref = ps.ActionReference()
+    ref.putProperty(cTID("Chnl"), cTID("fsel"))
+    click.putReference(cTID("null"), ref)
+    click.putObject(cTID("T   "), cTID("Pnt "), coords)
+    click.putInteger(cTID("Tlrn"), t) # Tolerance
+    click.putBoolean(cTID("AntA"), a) # Anti-aliasing
+    click.putBoolean(cTID("Cntg"), c) # Contiguous
+    click.putBoolean(cTID("Mrgd"), s) # Sample all layers
+    app.executeAction(cTID(select_key[style]), click, 3)
+    app.activeDocument.activeLayer = old_layer
+
+# equivalent of ctrl+shift+v
+def paste_in_place():
+    paste = ps.ActionDescriptor()
+    paste.putBoolean(sTID("inPlace"), True)
+    paste.putEnumerated(
+        cTID("AntA"),
+        cTID("Antt"),
+        cTID("Anto")
+       )
+    app.executeAction(cTID("past"), paste, 3)
+
+# opens a pdf at a fixed max width/height
+def pdf_open(file, size):
+    """
+     * Opens a pdf scaled to (height) pixels tall
+    """
+    open_desc = ps.ActionDescriptor()
+    sett_desc = ps.ActionDescriptor()
+    pxl = cTID("#Pxl")
+    sett_desc.putString(cTID("Nm  "), "pdf")
+    sett_desc.putEnumerated(cTID("Crop"), sTID("cropTo"), sTID("boundingBox"))
+    sett_desc.putUnitDouble(cTID("Rslt"), cTID("#Rsl"), 800.000000)
+    sett_desc.putEnumerated(cTID("Md  "), cTID("ClrS"), cTID("RGBC"))
+    sett_desc.putInteger(cTID("Dpth"), 8)
+    sett_desc.putBoolean(cTID("AntA"), True)
+    sett_desc.putUnitDouble(cTID("Wdth"), pxl, size)
+    sett_desc.putUnitDouble(cTID("Hght"), pxl, size)
+    sett_desc.putBoolean(cTID("CnsP"), True)
+    sett_desc.putBoolean(sTID("suppressWarnings"), True)
+    sett_desc.putBoolean(cTID("Rvrs"), True)
+    sett_desc.putEnumerated(cTID("fsel"), sTID("pdfSelection"), sTID("page"))
+    sett_desc.putInteger(cTID("PgNm"), 1)
+    open_desc.putObject(cTID("As  "), cTID("PDFG"), sett_desc)
+    open_desc.putPath(cTID("null"), file)
+    open_desc.putInteger(cTID("DocI"), 727)
+    app.executeAction(cTID("Opn "), open_desc, 3)
+
+def layer_styles_visible(layer, visible):
+    show_hide = {"on": "Shw ", "off": "Hd  "}
+    old_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+    desc1 = ps.ActionDescriptor()
+    list1 = ps.ActionList()
+    ref1 = ps.ActionReference()
+    ref1.putClass(cTID("Lefx"))
+    ref1.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"))
+    list1.putEnumerated(ref1)
+    desc1.putList(cTID("null"), list1)
+    app.executeAction(cTID(show_hide[visible]), desc1, 3)
+    app.activeDocument.activeLayer = old_layer
+
+# testing to set transform to bicubic auto instead of whatever was used last
+# maybe set it up to change to nearest neighbor or something for certain resizing?
+def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
+    resample = {
+       "bicubicSharper": sTID("bicubicSharper"),
+       "bicubicAutomatic": sTID("bicubicAutomatic"),
+       "nearestNeighbor": cTID("Nrst")
+        }
+    old_tool = app.currentTool
+    old_layer = app.activeDocument.activeLayer
+
+    app.currentTool = "moveTool"
+    app.activeDocument.activeLayer = layer
+
+    desc1 = ps.ActionDescriptor()
+    desc2 = ps.ActionDescriptor()
+    ref1 = ps.ActionReference()
+    idPxl = cTID("#Pxl")
+    idPrc = cTID("#Prc")
+    ref1.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"))
+    desc1.putReference(cTID("null"), ref1)
+    desc1.putEnumerated(cTID("FTcs"), cTID("QCSt"), cTID("Qcs0"))
+    desc2.putUnitDouble(cTID("Hrzn"), idPxl, x)
+    desc2.putUnitDouble(cTID("Vrtc"), idPxl, y)
+    desc1.putObject(cTID("Ofst"), cTID("Ofst"), desc2)
+    desc1.putUnitDouble(cTID("Wdth"), idPrc, w)
+    desc1.putUnitDouble(cTID("Hght"), idPrc, h)
+    desc1.putEnumerated(cTID("Intr"), cTID("Intp"), resample[i])
+    app.executeAction(cTID("Trnf"), desc1, 3)
+
+    app.currentTool = old_tool
+    app.activeDocument.activeLayer = old_layer
+
+def bitmap_font(text, bounds):
+    key = [
+        "ABCDEFGHI",
+        "JKLMNOPQR",
+        "STUVWXYZ",
+        "abcdefghijklmn",
+        "opqrstuvwxyz",
+        "0123456789",
+        "!?-+/%.:,—"
+        ]
+    lookup = {
+    "A": [[0,0],[6,8]],
+    "B": [[6,0],[6,8]],
+    "C": [[12,0],[6,8]],
+    "D": [[18,0],[6,8]],
+    "E": [[24,0],[6,8]],
+    "F": [[30,0],[6,8]],
+    "G": [[36,0],[6,8]],
+    "H": [[42,0],[6,8]],
+    "I": [[48,0],[2,8]],
+    "J": [[0,8],[5,8]],
+    "K": [[5,8],[6,8]]
+    }
