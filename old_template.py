@@ -2,23 +2,27 @@
 PRESHTILDEATH TEMPLATES
 """
 import os
+import sys
 import tools
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
+import proxyshop.constants as con
 import proxyshop.helpers as psd
-from proxyshop import format_text, gui
+import photoshop.api as ps
 from proxyshop.constants import con
 from proxyshop.settings import cfg
-import photoshop.api as ps
+from proxyshop import format_text, gui
 console = gui.console_handler
 app = ps.Application()
+
+print(sys.path)
 
 # Ensure scaling with pixels, font size with points
 app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
-app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
 
-class FullArtModularTemplate (temp.StarterTemplate):
+
+class FullArtModularTemplate (temp.BaseTemplate):
     """
      * Created by preshtildeath
      * Expands the textbox based on how much oracle text a card has
@@ -29,43 +33,141 @@ class FullArtModularTemplate (temp.StarterTemplate):
     def template_suffix (self):
         return "Full Mod"
 
+    def load_template (self):
+        """
+         * Opens the template's PSD file in Photoshop.
+        """
+        self.file_path = os.path.join(
+            con.cwd,
+            f"templates/{self.template_file_name()}.psd"
+        )
+        app.load(self.file_path)
+        # TODO: if that's the file that's currently open, reset instead of opening?
+
     def load_artwork (self):
         """
          * Loads the specified art file into the specified layer.
         """
         psd.paste_file(self.art_layer, self.file)
-        tools.zero_transform(self.art_layer)
-
-    def collector_info (self): pass
 
     def __init__ (self, layout, file):
-        cfg.remove_flavor = True
-        cfg.remove_reminder = True
-        con.layers["ARTIST"] = "Name"
+        # Setup inherited info, tx_layers, template PSD
+        self.failed = False
+        self.layout = layout
+        self.file = file
+        self.tx_layers = []
         
-        try: super().__init__(layout, file)
-        except Exception as e_txt:
-            with open("error.txt", "a") as error:
-                error.write(e_txt)
-            
+        try: self.load_template()
+        except Exception as e:
+            result = console.log_error(
+                "PSD not found! Make sure to download the photoshop templates!",
+                self.layout.name,
+                self.template_file_name(),
+                e
+                )
+
+        self.art_layer = psd.getLayer('Layer 1')
+
+        # set stroke size
+        cfg.symbol_stroke = 4
 
         # define some characteristics
+        try: self.is_creature = bool(self.layout.power and self.layout.toughness)
+        except: self.is_creature = False
+        try: self.is_legendary = bool(self.layout.type_line.find("Legendary") >= 0)
+        except: self.is_legendary = False
+        try: self.is_land = bool(self.layout.type_line.find("Land") >= 0)
+        except: self.is_land = False
         try: self.is_basic = self.is_basic
         except: self.is_basic = False
-        try: self.is_land = bool(self.layout.type_line.find("Land") >= 0 or self.is_basic)
-        except: self.is_land = False
+        
+        # rip out the flavor and reminder texts
+        layout.no_collector = True
+        layout.flavor_text = ""
+        if not self.is_basic:
+            layout.oracle_text = format_text.strip_reminder_text(layout.oracle_text)
                 
         # lands have a fun border
-        if self.is_land: self.art_reference = psd.getLayer('Full Art Frame', 'Ref')
+        if self.is_land or self.is_basic: self.art_reference = psd.getLayer('Full Art Frame', 'Ref')
         # legendary framing is slightly scooted down
         elif self.is_legendary: self.art_reference = psd.getLayer('Legendary Frame', 'Ref')
         # everything else is just normie
         else: self.art_reference = psd.getLayer('Art Frame', 'Ref')
 
+    def execute (self):
+        """
+         * Perform actions to populate this template.
+         * Load and frame artwork, enable frame layers, and execute all text layers.
+        """
+        # Load in artwork and frame it
+        self.load_artwork()
+        psd.frame_layer(self.art_layer, self.art_reference)
+
         # Set up text layers
         self.text_layers()
 
-    def post_exectute(self):
+        # Enable the layers we need
+        try:
+            console.update("Enabling frame layers...")
+            self.enable_frame_layers()
+        except Exception as e:
+            result = console.log_error(
+                "This card is incompatible with this Template!",
+                self.layout.name,
+                self.template_file_name(),
+                e
+            )
+            return result
+
+        # Input and format each text layer
+        try:
+            console.update("Formatting text...")
+            for this_layer in self.tx_layers:
+                this_layer.execute()
+        except Exception as e:
+            result = console.log_error(
+                "This card is incompatible with this Template!",
+                self.layout.name,
+                self.template_file_name(),
+                e
+            )
+            return result
+
+        # Exit early defined?
+        try: self.exit_early
+        except Exception: self.exit_early = False
+
+        # Manual edit step?
+        if self.exit_early or cfg.exit_early:
+            console.wait(
+                "Manual editing enabled! When you're ready to save, click continue..."
+            )
+            console.update("Saving document...\n")
+
+        # Format file name
+        file_name = f"{self.layout.name} ({self.template_suffix()})"
+
+        # Save the document
+        try:
+            if cfg.save_jpeg:
+                file_name = tools.filename_append(
+                    os.path.join(con.cwd, 'out/'),
+                    file_name,
+                    '.jpg'
+                )
+                psd.save_document_jpeg(file_name)
+            else:
+                file_name = tools.filename_append(
+                    os.path.join(con.cwd, 'out/'),
+                    file_name,
+                    '.png'
+                )
+                psd.save_document_png(file_name)
+            console.update(f"{file_name} rendered successfully!")
+            # Reset document
+            psd.reset_document(os.path.basename(self.file_path))
+        except: console.update(f"Error during save process!\nMake sure the file saved.")
+
         # Move art source to a new folder
         try:
             ext = self.file[self.file.rfind('.'):]
@@ -78,7 +180,9 @@ class FullArtModularTemplate (temp.StarterTemplate):
                 ext )
             os.rename(self.file, f'{fin_path}/{new_name}{ext}')
             console.update(f"{new_name}{ext} moved successfully!")
-        except Exception as err: console.update('Problem occurred moving art file.', e=err)
+        except: console.update('Problem occurred moving art file.')
+        console.end_await()
+        return True
 
     def text_layers (self):
         """
@@ -88,9 +192,12 @@ class FullArtModularTemplate (temp.StarterTemplate):
         
         mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
-        exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
+        exp_layer = psd.getLayer('Expansion Symbol',
+            psd.getLayerSet('Expansion', 'Text and Icons')
+        )
         exp_ref = psd.getLayer('Expansion', 'Ref')
         type_layer = psd.getLayer('Typeline', 'Text and Icons')
+        text_box = psd.getLayer('Base', 'Textbox')
         textbox_ref = psd.getLayer('Textbox', 'Ref')
         
         # Move typeline and modify textbox reference and text outlines if certain criteria is met
@@ -103,7 +210,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
         else: modifier = 0
         
         # Set artist info
-        artist_text = psd.getLayer('Name', 'Artist').textItem
+        artist_text = psd.getLayer('Artist', 'Text and Icons').textItem
         artist_text.contents = self.layout.artist
         
         # Do the mana cost
@@ -132,6 +239,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
             is_centered = bool( scale <= 2)
             # Fix modifier
             if modifier > 160: modifier = 160
+            if scale == 0: modifier = 360
             # Creature card - set up creature layer for rules text and insert p/t
             power_toughness = psd.getLayer('Power / Toughness', 'Text and Icons')
             rules_text = psd.getLayer(f'Rules Text - Creature {modifier}', 'Text and Icons')
@@ -149,12 +257,9 @@ class FullArtModularTemplate (temp.StarterTemplate):
                     reference_layer = textbox_ref,
                     pt_reference_layer = psd.getLayer('PT Adjustment', 'Ref'),
                     pt_top_reference_layer = psd.getLayer('PT Top', 'Ref'),
-                    is_centered = is_centered,
-                    fix_length = False
+                    is_centered = is_centered
                 )
             ])
-            # setup for Textless template
-            if scale == 0: modifier = 360
         else:        
             # Center the rules text if the text is at most four lines
             is_centered = bool( scale <= 4 )
@@ -175,12 +280,17 @@ class FullArtModularTemplate (temp.StarterTemplate):
             )
             
         # Apply typeline translate and textbox stretch
-        type_layer.translate(0, modifier)
-        tools.layer_vert_stretch(textbox_ref, modifier, 'bottom')
+        type_layer.translate( 0, modifier )
+        tools.layer_vert_stretch( textbox_ref, modifier, 'bottom' )
         
         # Set symbol
         set_pdf = tools.get_set_pdf(self.layout.set)
-        tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, set_pdf)
+        tools.get_expansion(
+            exp_layer,
+            self.layout.rarity,
+            exp_ref,
+            set_pdf
+            )
 
     def enable_frame_layers (self):
         # Eldrazi formatting?
@@ -280,15 +390,15 @@ class BasicModularTemplate (FullArtModularTemplate):
         """
 
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
-        exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
+        exp_layer = psd.getLayer('Expansion Symbol',
+                                       psd.getLayerSet('Expansion', 'Text and Icons')
+                                       )
         exp_ref = psd.getLayer('Expansion', 'Ref')
         type_layer = psd.getLayer('Typeline', 'Text and Icons')
-        text_ref = psd.getLayer('Textbox', 'Ref')
         # Apply typeline translate and textbox stretch
         type_layer.translate( 0, 480 )
-        text_ref.resize(100, 0, 7)
         # Set artist info
-        artist_text = psd.getLayer('Artist', 'Artist').textItem
+        artist_text = psd.getLayer('Artist', 'Text and Icons').textItem
         artist_text.contents = self.layout.artist
         # Name and type text
         self.tx_layers.extend([
@@ -305,7 +415,12 @@ class BasicModularTemplate (FullArtModularTemplate):
         ])
         # Set symbol
         set_pdf = tools.get_set_pdf(self.layout.set)
-        tools.get_expansion(exp_layer, 'common', exp_ref, set_pdf)
+        tools.get_expansion(
+            exp_layer,
+            'common',
+            exp_ref,
+            set_pdf
+            )
 
     def enable_frame_layers (self):
         layer_name = self.name_key[self.layout.name]
@@ -372,25 +487,3 @@ class DFCModularTemplate (FullArtModularTemplate):
             tools.layer_mask_select(legend_mask)
             app.activeDocument.selection.fill(black)
             app.activeDocument.selection.deselect()
-            
-        # Turn on/off pinlines
-        psd.getLayer('Standard', pinline_mask_set).visible = False
-        dfc_pin.visible = True
-            
-        # Turn on/off the emboss
-        psd.getLayer('Emboss', 'Name').visible = False
-        dfc_emboss = psd.getLayer('DFC Emboss', 'Name')
-        dfc_emboss.visible = True
-
-        # Copy emboss, invert middle and adjust levels to create mask for namebox
-        dfc_dupe = dfc_emboss.duplicate()
-        dfc_dupe.adjustCurves([[0, 255], [127, 0], [255, 255]])
-        dfc_dupe.adjustLevels(0.0, 255.0, 1.0, 196.0, 255.0)
-        app.activeDocument.activeLayer = dfc_dupe
-        app.activeDocument.selection.selectAll()
-        app.activeDocument.selection.copy()
-        tools.layer_mask_select(namebox_mask)
-        app.activeDocument.selection.clear()
-        tools.paste_in_place()
-        app.activeDocument.selection.deselect()
-        dfc_dupe.delete()

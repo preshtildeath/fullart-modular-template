@@ -4,14 +4,16 @@ PRESHTILDEATH TOOLS
 import os
 import re
 import math
-import requests
 from proxyshop.constants import con
 from proxyshop.settings import cfg
 import proxyshop.helpers as psd
 import photoshop.api as ps
-from reportlab.graphics import renderPDF
-from svglib.svglib import svg2rlg
 app = ps.Application()
+### imports for fetching SVGs from scryfall, then converting them to pdf
+##from reportlab.graphics import renderPDF
+##from svglib.svglib import svg2rlg
+##import lxml
+##import requests
 
 # the whole ass mana cost
 def mana_cost_render(layer_set, mana_cost):
@@ -410,25 +412,34 @@ def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
     app.activeDocument.activeLayer = old_layer
 
 def bitmap_font(text, bounds):
-    key = [
-        "ABCDEFGHI",
-        "JKLMNOPQR",
-        "STUVWXYZ",
-        "abcdefghijklmn",
-        "opqrstuvwxyz",
-        "0123456789",
-        "!?-+/%.:,—"
-        ]
-    lookup = {
-    "A": [[0,0],[6,8]],
-    "B": [[6,0],[6,8]],
-    "C": [[12,0],[6,8]],
-    "D": [[18,0],[6,8]],
-    "E": [[24,0],[6,8]],
-    "F": [[30,0],[6,8]],
-    "G": [[36,0],[6,8]],
-    "H": [[42,0],[6,8]],
-    "I": [[48,0],[2,8]],
-    "J": [[0,8],[5,8]],
-    "K": [[5,8],[6,8]]
-    }
+    key = ["ABCDEFGHI", "JKLMNOPQR", "STUVWXYZ0",
+        "abcdefghi", "jklmnopqr", "stuvwxyz—",
+        "123456789", "!?-+/%.:," ]
+    key_dict = {}
+    txt_dict = {}
+    txt_lines = []
+    #build dictionary with relative x,y coordinates
+    for line in key:
+        for char in line:
+            key_dict[char] = [line.index(char), key.index(line)]
+    #parse text against dictionary
+    #assemble based on widths and adding lines as necessary
+    words = text.split()
+    for word in words:
+        txt_dict[word] = {}
+        for c in word:
+            txt_dict[word][c] = key_dict[c]
+
+def bahamut_font(text):
+    key = ["[ABCEDFGHIJKLMNO", "PQRSTUVWXYZabcde", "fghijklmnopqrstu", "vwxyz-0123456789", ".,?!\'\":;×/()*—]"]
+    key_dict = {}
+    r_dict = {}
+    for line in key:
+        for char in line:
+            key_dict[char] = [line.index(char), key.index(line)]
+    words = text.split()
+    for word in words:
+        r_dict[word] = {}
+        for c in word:
+            r_dict[word][c] = key_dict[c]
+    return r_dict
