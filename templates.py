@@ -6,9 +6,10 @@ import tools
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
 import proxyshop.helpers as psd
-from proxyshop import format_text, gui
 from proxyshop.constants import con
 from proxyshop.settings import cfg
+from proxyshop import gui
+from configs import config
 import photoshop.api as ps
 console = gui.console_handler
 app = ps.Application()
@@ -37,20 +38,21 @@ class FullArtModularTemplate (temp.StarterTemplate):
         tools.zero_transform(self.art_layer)
 
     def collector_info (self): pass
+    def basic_text_layers(self, text_and_icons): pass
+    def enable_hollow_crown(crown, pinlines): pass
+    def paste_scryfall_scan(self, reference_layer, rotate=False): pass
 
     def __init__ (self, layout, file):
+        self.cwd = tools.parent_dirs(__file__, 4)
         cfg.remove_flavor = True
         cfg.remove_reminder = True
         con.layers["ARTIST"] = "Name"
+        self.black = tools.rgbcolor(0, 0, 0)
         
-        try: super().__init__(layout, file)
-        except Exception as e_txt:
-            with open("error.txt", "a") as error:
-                error.write(e_txt)
-            
+        super().__init__(layout, file)
 
         # define some characteristics
-        try: self.is_basic = self.is_basic
+        try: self.is_basic
         except: self.is_basic = False
         try: self.is_land = bool(self.layout.type_line.find("Land") >= 0 or self.is_basic)
         except: self.is_land = False
@@ -63,30 +65,33 @@ class FullArtModularTemplate (temp.StarterTemplate):
         else: self.art_reference = psd.getLayer('Art Frame', 'Ref')
 
         # Set up text layers
+        console.update("Preparing text layers...")
         self.text_layers()
 
     def post_exectute(self):
         # Move art source to a new folder
+        ext = self.file[self.file.rfind('.'):]
+        fin_path = os.path.join(con.cwd, 'art', 'finished')
+        try: os.mkdir(fin_path)
+        except: pass
+        new_name = tools.filename_append(
+            f'{fin_path}/',
+            f'{self.layout.name} ({self.layout.artist}) [{self.layout.set}]',
+            ext )
         try:
-            ext = self.file[self.file.rfind('.'):]
-            fin_path = os.path.join(con.cwd, 'art/finished')
-            try: os.mkdir(fin_path)
-            except: pass
-            new_name = tools.filename_append(
-                f'{fin_path}/',
-                f'{self.layout.name} ({self.layout.artist}) [{self.layout.set}]',
-                ext )
             os.rename(self.file, f'{fin_path}/{new_name}{ext}')
             console.update(f"{new_name}{ext} moved successfully!")
-        except Exception as err: console.update('Problem occurred moving art file.', e=err)
+        except Exception as e:
+            with open("error.txt", "a") as log:
+                log.write(e)
+            return None
 
     def text_layers (self):
         """
          * Set up the card's mana cost, name (scaled to not overlap with mana cost), expansion symbol, and type line
          * (scaled to not overlap with the expansion symbol).
         """
-        
-        mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
+
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
         exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
         exp_ref = psd.getLayer('Expansion', 'Ref')
@@ -103,29 +108,23 @@ class FullArtModularTemplate (temp.StarterTemplate):
         else: modifier = 0
         
         # Set artist info
-        artist_text = psd.getLayer('Name', 'Artist').textItem
+        artist_text = psd.getLayer('Artist', 'Legal').textItem
         artist_text.contents = self.layout.artist
         
         # Do the mana cost
-        if len(self.layout.mana_cost) > 0:
-            mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
-        else: mana_layer = tools.empty_mana_cost(mana_layer)
-        
-        # Name and type text
-        self.tx_layers.extend([
-            txt_layers.ScaledTextField(
-                layer = name_layer,
-                text_contents = self.layout.name,
-                text_color = psd.get_text_layer_color(name_layer),
-                reference_layer = mana_layer
-            ),
-            txt_layers.ScaledTextField(
-                layer = type_layer,
-                text_contents = self.layout.type_line,
-                text_color = psd.get_text_layer_color(type_layer),
-                reference_layer = exp_layer
+        # If config sets symbols to png mode
+        # mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
+        # mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
+        # else:
+        mana_layer = psd.getLayer('Text', 'Mana Cost')
+        mana_layer.visible = True
+        self.tx_layers.append(
+            txt_layers.BasicFormattedTextField(
+                layer=mana_layer,
+                text_contents=self.layout.mana_cost,
+                text_color=self.black
             )
-        ])
+        )
         
         if self.is_creature:        
             # Center the rules text if the text is at most two lines
@@ -180,7 +179,27 @@ class FullArtModularTemplate (temp.StarterTemplate):
         
         # Set symbol
         set_pdf = tools.get_set_pdf(self.layout.set)
-        tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, set_pdf)
+        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, set_pdf)
+        
+        # Mana Cost, Name, and Type text
+        self.tx_layers.extend([
+            txt_layers.ScaledTextField(
+                layer = name_layer,
+                text_contents = self.layout.name,
+                text_color = psd.get_text_layer_color(name_layer),
+                reference_layer = mana_layer
+            ),
+            ScaledTextField(
+                layer = type_layer,
+                text_contents = self.layout.type_line,
+                text_color = psd.get_text_layer_color(type_layer),
+                reference_layer = exp_layer
+            )
+        ])
+    #     self.tx_layers.sort(key=self.layer_sort) # Top to bottom
+
+    # def layer_sort (self, tx_layer):
+    #     return tx_layer.layer.bounds[1]
 
     def enable_frame_layers (self):
         # Eldrazi formatting?
@@ -209,10 +228,15 @@ class FullArtModularTemplate (temp.StarterTemplate):
             tools.wubrg_layer_sort(self.layout.pinlines, 'Pinlines')
             tools.wubrg_layer_sort(self.layout.pinlines, 'Textbox')
 
+        pinline_mask_set = psd.getLayerSet('Masked', 'Pinlines')
+        psd.getLayer('Side Pinlines', pinline_mask_set).visible = config.side_pins            
+
         # legendary crown
         if self.is_legendary:
-            title_ref = psd.getLayer('Legendary', 'Ref')
-            psd.getLayer('Legendary Crown', psd.getLayerSet('Masked', 'Pinlines')).visible = True
+            if config.side_pins: type = "Legendary"
+            else: type = "Floating"
+            psd.getLayer(f'{type} Crown', pinline_mask_set).visible = True
+            title_ref = psd.getLayer(type, 'Ref')
             if not self.is_land:
                 psd.getLayer(
                     'Crown Mask',
@@ -251,7 +275,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
             tools.add_select_layer(title_ref) # Create selection based on the type box
             tools.add_select_layer(type_ref) # Add to selection based on the title box
             tools.layer_mask_select(pin_mask) # Select the layer mask
-            app.activeDocument.selection.fill( psd.rgb_black() ) # Fill it with black
+            app.activeDocument.selection.fill(self.black) # Fill it with black
             app.activeDocument.selection.deselect() # Deselect
 
 class BasicModularTemplate (FullArtModularTemplate):
@@ -260,7 +284,10 @@ class BasicModularTemplate (FullArtModularTemplate):
         return "preshtildeath/fullart-modular"
     
     def template_suffix (self):
-        return self.layout.artist
+        names = self.layout.artist.split()
+        if len(names) > 1: last_name = names[-1]
+        else: last_name = names[0]
+        return f"{last_name}) ({self.layout.set}"
 
     def __init__ (self, layout, file):
         self.is_basic = True
@@ -274,11 +301,7 @@ class BasicModularTemplate (FullArtModularTemplate):
             } 
 
     def text_layers (self):
-        """
-         * Set up the card's mana cost, name (scaled to not overlap with mana cost), expansion symbol, and type line
-         * (scaled to not overlap with the expansion symbol).
-        """
-
+        # Define some layers
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
         exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
         exp_ref = psd.getLayer('Expansion', 'Ref')
@@ -323,8 +346,8 @@ class FullArtTextlessTemplate (FullArtModularTemplate):
         return "Fullart Textless"
 
     def __init__ (self, layout, file):
-        super().__init__(layout, file)
         self.layout.oracle_text = ""
+        super().__init__(layout, file)
 
 class DFCModularTemplate (FullArtModularTemplate):
       
@@ -337,12 +360,11 @@ class DFCModularTemplate (FullArtModularTemplate):
     def __init__ (self, layout, file):
         super().__init__(layout, file)
         
+        if config.side_pins: top = "Legendary"
+        else: top = "Floating"
         pinline_mask_set = psd.getLayerSet('Masked', 'Pinlines')
-        type_pins = psd.getLayer('Type and Pinlines', pinline_mask_set)
-        legend_mask = psd.getLayer('Legendary Crown', pinline_mask_set)
+        legend_mask = psd.getLayer(f'{top} Crown', pinline_mask_set)
         namebox_mask = psd.getLayer('Name', psd.getLayerSet('Mask Wearer', 'Name'))
-        white = psd.rgb_white()
-        black = psd.rgb_black()
         trans_icon = {
             'sunmoondfc': [ '', '' ], 'mooneldrazidfc': [ '', '' ],
             'compasslanddfc': [ '', '' ], 'modal_dfc': [ '', '' ],
@@ -370,7 +392,7 @@ class DFCModularTemplate (FullArtModularTemplate):
             app.activeDocument.selection.expand(2)
             app.activeDocument.selection.invert()
             tools.layer_mask_select(legend_mask)
-            app.activeDocument.selection.fill(black)
+            app.activeDocument.selection.fill(self.black)
             app.activeDocument.selection.deselect()
             
         # Turn on/off pinlines
@@ -383,14 +405,59 @@ class DFCModularTemplate (FullArtModularTemplate):
         dfc_emboss.visible = True
 
         # Copy emboss, invert middle and adjust levels to create mask for namebox
-        dfc_dupe = dfc_emboss.duplicate()
-        dfc_dupe.adjustCurves([[0, 255], [127, 0], [255, 255]])
-        dfc_dupe.adjustLevels(0.0, 255.0, 1.0, 196.0, 255.0)
-        app.activeDocument.activeLayer = dfc_dupe
+        dfc_mask = psd.getLayer('DFC Emboss Mask', 'Name')
+        dfc_mask.visible = True
+        app.activeDocument.activeLayer = dfc_mask
         app.activeDocument.selection.selectAll()
         app.activeDocument.selection.copy()
         tools.layer_mask_select(namebox_mask)
         app.activeDocument.selection.clear()
         tools.paste_in_place()
         app.activeDocument.selection.deselect()
-        dfc_dupe.delete()
+        dfc_mask.delete()
+
+class ScaledTextField (txt_layers.TextField):
+    def __init__ (self, layer, text_contents, text_color, reference_layer):
+        super().__init__(layer, text_contents, text_color)
+        self.reference_layer = reference_layer
+
+    def execute (self):
+        super().execute()
+        layer = self.layer
+        reference_layer = self.reference_layer
+
+        try:
+            if reference_layer.kind is ps.LayerKind.TextLayer:
+                contents = str(reference_layer.textItem.contents)
+                if contents in ("", " "):
+                    reference_layer.textItem.contents = "."
+            elif reference_layer.bounds == [0, 0, 0, 0]:
+                return None
+        except Exception:
+            return None
+
+        # Can't find UnitValue object in python api
+        step_size = 0.25
+        reference_left_bound = reference_layer.bounds[0]
+        layer_left_bound = layer.bounds[0]
+        layer_right_bound = layer.bounds[2]
+        old_size = layer.textItem.size
+
+        # Obtain proper spacing for this document size
+        spacing = int((app.activeDocument.width/3264)*60)
+
+        # Guard against the reference's left bound being left of the layer's left bound or other irregularities
+        if reference_left_bound >= layer_left_bound:
+            # Step down the font till it clears the reference
+            while layer_right_bound > (reference_left_bound-spacing):  # minimum 24 px gap
+                layer.textItem.size = layer.textItem.size - step_size
+                layer_right_bound = layer.bounds[2]
+
+        # Shift baseline up to keep text centered vertically
+        if old_size > layer.textItem.size:
+            layer.textItem.baselineShift = (old_size * 0.3) - (layer.textItem.size * 0.3)
+
+        # Fix corrected reference layer
+        if reference_layer.kind is ps.LayerKind.TextLayer: 
+            if str(reference_layer.textItem.contents) == ".":
+                reference_layer.textItem.contents = contents

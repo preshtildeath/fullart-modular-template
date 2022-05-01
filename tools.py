@@ -4,21 +4,32 @@ PRESHTILDEATH TOOLS
 import os
 import re
 import math
-from proxyshop.constants import con
-from proxyshop.settings import cfg
-import proxyshop.helpers as psd
 import photoshop.api as ps
-app = ps.Application()
-### imports for fetching SVGs from scryfall, then converting them to pdf
-##from reportlab.graphics import renderPDF
-##from svglib.svglib import svg2rlg
-##import lxml
-##import requests
+import proxyshop.helpers as psd
+from proxyshop import gui
+# imports for fetching SVGs from scryfall, then converting them to pdf
+# from reportlab.graphics import renderPDF
+# from svglib.svglib import svg2rlg
+# import lxml
+# import requests
+
+# loop up through parent directories
+def parent_dirs(file, depth=1):
+    for d in range(depth): file = os.path.dirname(file)
+    return file
+
+def rgbcolor(r, g, b):
+    color = ps.SolidColor()
+    color.rgb.red = r
+    color.rgb.green = g
+    color.rgb.blue = b
+    return color
 
 # the whole ass mana cost
 def mana_cost_render(layer_set, mana_cost):
-    burngrey = ps.SolidColor()
-    burngrey.rgb.red = burngrey.rgb.green = burngrey.rgb.blue = 150
+    console.update(layer_set)
+    console.update(mana_cost)
+    burngrey = rgbcolor(150, 150, 150)
     sym_lookup = [
         [ 'W', 'U', 'B', 'R', 'G', 'C'],
         [ 'W/U', 'W/B', 'U/B', 'U/R', 'B/R', 'B/G'],
@@ -26,93 +37,94 @@ def mana_cost_render(layer_set, mana_cost):
         [ '2/W', '2/U', '2/B', '2/R', '2/G', 'S'],
         [ '1', '2', '3', '4', '5', '6'],
         [ '7', '8', '9', '10', '11', '12'],
-        [ '13', '14', '15', '16', '20', ''],
+        [ '13', '14', '15', '16', '20'],
         [ 'W/P', 'U/P', 'B/P', 'R/P', 'G/P', 'P/P'],
         [ 'W/U/P', 'W/B/P', 'U/B/P', 'U/R/P', 'B/R/P', 'B/G/P'],
-        [ 'R/G/P', 'R/W/P', 'G/W/P', 'G/U/P', '', '']
+        [ 'R/G/P', 'R/W/P', 'G/W/P', 'G/U/P']
     ]
+    cost_lookup = mana_cost[1:-1].split('}{')
+    cost_lookup.reverse() # Rendering right to left
+    for sym in cost_lookup: console.update(sym)
     card_doc = app.activeDocument
-    symb_doc = app.open(f'{con.cwd}/templates/preshtildeath/mana.png')
-    cost_lookup = mana_cost[1:-1].split('}{').reverse()
-    i = 110
-    # Go through the symbols from right to left
+    symb_doc = app.open(f'{root_dir}/templates/preshtildeath/mana.png')
+    # w = 110
+    # h = 110
+    w = symb_doc.width / len(max(line for line in sym_lookup))
+    h = symb_doc.height / len(sym_lookup)
     for r in range(len(cost_lookup)):
         for sym_row in sym_lookup:
             if cost_lookup[r] in sym_row:
-                x = sym_lookup.index(sym_row) * i
-                y = sym_row.index(cost_lookup[r]) * i
-                layer = copy_from_paste_to(
-                    symb_doc,
-                    card_doc,
-                    layer_set,
-                    [x, y, x+i, y+i],
-                    [1918-((r+1)*i+(r*5)), 248]
-                )
+                x = sym_lookup.index(sym_row) * w
+                y = sym_row.index(cost_lookup[r]) * h
+                r_delta = 1918 - ((r + 1) * w + (r * 5))
+                copy_from_paste_to(symb_doc, card_doc, layer_set, [x, y, x+w, y+h], [r_delta, 248])
                 break
     # cleanup
     symb_doc.close(ps.SaveOptions.DoNotSaveChanges)
-    layer_styles_visible(layer_set, "on")
+    layer_styles_visible(layer_set, True)
     layer = layer_set.merge()
     # shadow stuff
     app.activeDocument.activeLayer = layer
     magic_wand_select(layer, 0, 0)
     app.activeDocument.selection.expand(20)
-    app.activeDocument.selection.feather(30)
     app.activeDocument.selection.invert()
-    shadow_layer = app.activeDocument.artLayers.add()
+    app.activeDocument.selection.feather(30)
+    shadow_layer = add_layer("Shadow")
     app.activeDocument.activeLayer = shadow_layer
     app.activeDocument.selection.fill(burngrey)
     shadow_layer.blendMode = ps.BlendMode.ColorBurn
     shadow_layer.visible = True
     shadow_layer.moveAfter(layer.parent)
-    psd.clear_selection()
+    app.activeDocument.selection.deselect()
     magic_wand_select(layer, 0, 0)
-    app.activeDocument.selection.contract(2)
+    app.activeDocument.selection.expand(2)
     app.activeDocument.selection.clear()
-    psd.clear_selection()
+    app.activeDocument.selection.deselect()
     return layer
                     
 def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord):
-    app.activeDocument = fromdoc
     l, t, r, b = copy_bounds
+    x, y = paste_coord
+    app.activeDocument = fromdoc
     app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
     app.activeDocument.selection.copy()
     app.activeDocument = todoc
     app.activeDocument.activeLayer = todoc_layer_set
-    x, y = paste_coord
-    app.activeDocument.paste()
-    todoc_layer = app.activeDocument.activeLayer
-    todoc_layer.translate(x-todoc_layer.bounds[0],y-todoc_layer.bounds[1])
-    return todoc_layer
+    layer = app.activeDocument.paste()
+    layer.translate(x-layer.bounds[0],y-layer.bounds[1])
+    return layer
 
 def empty_mana_cost(layer_set):
-    app.activeDocument.activeLayer = layer_set
-    layer = app.activeDocument.artLayers.add()
+    black = rgbcolor(0, 0, 0)
+    layer = add_layer()
+    app.activeDocument.activeLayer = layer
     l, t, r, b = [1913, 255, 1918, 365]
     app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
-    app.activeDocument.selection.fill(psd.rgb_black())
-    psd.clear_selection()
-    layer.move(psd.getLayerSet('Ref'), 0)
+    app.activeDocument.selection.fill(black)
+    app.activeDocument.selection.cut()
+    app.activeDocument.selection.deselect()
+    app.activeDocument.activeLayer = layer_set
+    layer.remove()
+    layer = app.activeDocument.paste()
+    layer.name = "Empty"
     return layer
 
 def get_set_pdf(code):
     if code.lower() == 'con':
         newcode = 'conflux'
-        code_pdf = os.path.join(con.cwd, f'SetPDF/{newcode}.pdf')
+        code_pdf = os.path.join(root_dir, f'SetPDF/{newcode}.pdf')
     else:
         newcode = code
-        code_pdf = os.path.join(con.cwd, f'SetPDF/{newcode}.pdf')
-    try: os.mkdir('SetPDF')
-    except: pass
+        code_pdf = os.path.join(root_dir, f'SetPDF/{newcode}.pdf')
     if os.path.exists(code_pdf): return code_pdf
-    else:
-        code_svg = os.path.join(con.cwd, f'SetPDF/{newcode}.svg')
-        set_json = requests.get(f'https://api.scryfall.com/sets/{code}', timeout=1).json()
-        scry_svg = requests.get(set_json['icon_svg_uri'], timeout=1).content
-        with open(code_svg, 'wb') as svg_temp: svg_temp.write(scry_svg)
-        renderPDF.drawToFile(svg2rlg(code_svg), code_pdf)
-        os.remove(code_svg)
-        return code_pdf
+    # else:
+    #     code_svg = os.path.join(root_dir, f'SetPDF/{newcode}.svg')
+    #     set_json = requests.get(f'https://api.scryfall.com/sets/{code}', timeout=1).json()
+    #     scry_svg = requests.get(set_json['icon_svg_uri'], timeout=1).content
+    #     with open(code_svg, 'wb') as svg_temp: svg_temp.write(scry_svg)
+    #     renderPDF.drawToFile(svg2rlg(code_svg), code_pdf)
+    #     os.remove(code_svg)
+    #     return code_pdf
     
 def get_expansion(layer, rarity, reference_layer, set_pdf):
     """
@@ -134,7 +146,7 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     frame_expansion_symbol(layer, reference_layer)
     fill_expansion_symbol(layer, psd.rgb_white())
     # apply rarity mask if necessary, and center it on symbol
-    if rarity != con.rarity_common:
+    if rarity != "common":
         mask_layer = psd.getLayer(rarity, layer.parent)
         psd.select_layer_pixels(layer)
         app.activeDocument.activeLayer = mask_layer
@@ -144,59 +156,41 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
         mask_layer.visible = True
     # return document to previous state
     app.activeDocument.activeLayer = prev_active_layer
+    return layer
 
-def fill_expansion_symbol(reference, stroke_color):
+def fill_expansion_symbol(ref, stroke_color):
     """
      * Give the symbol a background for open space symbols (i.e. M10)
     """
+    x, y = ref.bounds[0]-50, ref.bounds[1]-50
     # Magic Wand non-contiguous outside symbol
-    magic_wand_select(
-        reference,
-        reference.bounds[0]-50,
-        reference.bounds[1]-50,
-        'new',
-        0,
-        True,
-        False
-        )
+    magic_wand_select(ref, x, y, 'new', 0, True, False)
 
     # Magic Wand subtract contiguous outside symbol
-    magic_wand_select(
-        reference,
-        reference.bounds[0]-50,
-        reference.bounds[1]-50,
-        'sub',
-        0,
-        True
-        )
+    magic_wand_select(ref, x, y, 'sub', 0, True)
 
-    # Make a new layer
-    layer = app.activeDocument.artLayers.add()
-    layer.name ="Expansion Mask"
+    # Make a new layer and fill with stroke color
+    layer = add_layer("Expansion Mask")
     layer.blendMode = ps.BlendMode.NormalBlend
     layer.visible = True
-    layer.moveAfter(reference)
-
-    # Fill selection with stroke color
+    layer.moveAfter(ref)
     app.activeDocument.selection.fill(stroke_color)
-
-    # Clear Selection
-    psd.clear_selection()
+    app.activeDocument.selection.deselect()
 
     # Maximum filter to keep the antialiasing normal
     layer.applyMaximum(1)
 
 # Get width and height of paragraph text box
-def get_text_bounding_box(layer):
+def get_text_bounding_box(layer, text_width=None, text_height=None):
     if app.preferences.pointSize == 1: pref_scale = 72
     else: pref_scale = 72.27
     doc_res = app.activeDocument.resolution
-    text_width = layer.textItem.width * (doc_res / pref_scale) ** 2
-    text_height = layer.textItem.height * (doc_res / pref_scale) ** 2
-    return {
-        'width': text_width,
-        'height': text_height
-        }
+    multiplier = (doc_res / pref_scale) ** 2
+    if text_width is None: layer.textItem.width = text_width * multiplier
+    else: text_width = layer.textItem.width * multiplier
+    if text_height is None: layer.textItem.height = text_height * multiplier
+    else: text_height = layer.textItem.height * multiplier
+    return [text_width, text_height]
 
 # Check if a file already exists, then adds (x) if it does
 def filename_append(work_path, file_name, extension):
@@ -224,7 +218,7 @@ def frame_expansion_symbol(layer, reference_layer):
 
     psd.align_vertical()
     layer.translate(reference_layer.bounds[2]-layer.bounds[2],0)
-    psd.clear_selection()
+    app.activeDocument.selection.deselect()
 
 # Gives an estimated number of lines at default text size
 def dirty_text_scale (input_text):
@@ -284,6 +278,11 @@ def paste_file(layer, file):
     # return document to previous state
     app.activeDocument.activeLayer =prev_active_layer
 
+def add_layer(name=None):
+    layer = app.activeDocument.artLayers.add()
+    if name is not None: layer.name = name
+    return layer
+
 """
 HERE LIES ALL THE COMPLICATED BULLSHIT THAT MAKES LITTLE SENSE
 """
@@ -294,6 +293,14 @@ def cTID(char):
 
 def sTID(string):
     return app.stringIDToTypeID(string)
+
+def get_layer_index(layerID):
+    ref = ps.ActionReference()
+    ref.putIdentifier(cTID("Lyr "), layerID)
+    try:
+        app.activeDocument.backgroundLayer
+        return app.executeActionGet(ref).getInteger(cTID("ItmI"))-1
+    except: return app.executeActionGet(ref).getInteger(cTID("ItmI"))
 
 # Selects the layer mask for editing
 def layer_mask_select (layer):
@@ -326,6 +333,23 @@ def magic_wand_select(layer, x, y, style='new', t=0, a=True, c=True, s=False):
     click.putBoolean(cTID("Mrgd"), s) # Sample all layers
     app.executeAction(cTID(select_key[style]), click, 3)
     app.activeDocument.activeLayer = old_layer
+
+def move_inside(fromlayer, layerset):
+    fromID = fromlayer.id
+    toID = layerset.id
+    desc = ps.ActionDescriptor()
+    ref1 = ps.ActionReference()
+    ref2 = ps.ActionReference()
+    ref1.putIdentifier(cTID("Lyr "), int(fromID))
+    desc.putReference(cTID("null"), ref1)
+    ref2.putIndex(cTID("Lyr "), get_layer_index(toID))
+    desc.putReference(cTID("T   "), ref2)
+    desc.putBoolean(cTID('Adjs'), False)
+    desc.putInteger(cTID('Vrsn'), 5)
+    try:
+        app.executeAction(cTID("move"), desc, 3)
+    except Exception as err:
+        return err
 
 # equivalent of ctrl+shift+v
 def paste_in_place():
@@ -365,7 +389,8 @@ def pdf_open(file, size):
     app.executeAction(cTID("Opn "), open_desc, 3)
 
 def layer_styles_visible(layer, visible):
-    show_hide = {"on": "Shw ", "off": "Hd  "}
+    if visible: show_hide = cTID("Shw ")
+    else: show_hide = cTID("Hd  ")
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     desc1 = ps.ActionDescriptor()
@@ -375,7 +400,7 @@ def layer_styles_visible(layer, visible):
     ref1.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"))
     list1.putEnumerated(ref1)
     desc1.putList(cTID("null"), list1)
-    app.executeAction(cTID(show_hide[visible]), desc1, 3)
+    app.executeAction(show_hide, desc1, 3)
     app.activeDocument.activeLayer = old_layer
 
 # testing to set transform to bicubic auto instead of whatever was used last
@@ -430,16 +455,6 @@ def bitmap_font(text, bounds):
         for c in word:
             txt_dict[word][c] = key_dict[c]
 
-def bahamut_font(text):
-    key = ["[ABCEDFGHIJKLMNO", "PQRSTUVWXYZabcde", "fghijklmnopqrstu", "vwxyz-0123456789", ".,?!\'\":;×/()*—]"]
-    key_dict = {}
-    r_dict = {}
-    for line in key:
-        for char in line:
-            key_dict[char] = [line.index(char), key.index(line)]
-    words = text.split()
-    for word in words:
-        r_dict[word] = {}
-        for c in word:
-            r_dict[word][c] = key_dict[c]
-    return r_dict
+app = ps.Application()
+console = gui.console_handler
+root_dir = parent_dirs(__file__, 4)
