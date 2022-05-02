@@ -6,11 +6,11 @@ import tools
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
 import proxyshop.helpers as psd
+import photoshop.api as ps
 from proxyshop.constants import con
 from proxyshop.settings import cfg
 from proxyshop import gui
 from configs import config
-import photoshop.api as ps
 console = gui.console_handler
 app = ps.Application()
 
@@ -28,7 +28,16 @@ class FullArtModularTemplate (temp.StarterTemplate):
         return "preshtildeath/fullart-modular"
     
     def template_suffix (self):
-        return "Full Mod"
+        suffix = "Full Mod" # Base suffix
+        try:
+            if cfg.save_jpeg: test_file = f"{self.layout.name} ({suffix}).jpg"
+            else: test_file = f"{self.layout.name} ({suffix}).png"
+            end_file = tools.filename_append(test_file, os.path.join(con.cwd, "out")) # Check for multiples
+            end_file = os.path.splitext(os.path.basename(end_file))[0] # Cut to basename, then strip extension
+            end_file = end_file[end_file.find("(")+1:end_file.rfind(")")] # Take out everything between first "(" and last ")"
+            return end_file # "Base suffix) (x"
+        except:
+            return suffix
 
     def load_artwork (self):
         """
@@ -70,21 +79,15 @@ class FullArtModularTemplate (temp.StarterTemplate):
 
     def post_exectute(self):
         # Move art source to a new folder
-        ext = self.file[self.file.rfind('.'):]
-        fin_path = os.path.join(con.cwd, 'art', 'finished')
+        work_path = os.path.dirname(self.file)
+        fin_path = os.path.join(work_path, 'finished')
         try: os.mkdir(fin_path)
         except: pass
-        new_name = tools.filename_append(
-            f'{fin_path}/',
-            f'{self.layout.name} ({self.layout.artist}) [{self.layout.set}]',
-            ext )
+        new_file = tools.filename_append(self.file, fin_path)
         try:
-            os.rename(self.file, f'{fin_path}/{new_name}{ext}')
-            console.update(f"{new_name}{ext} moved successfully!")
+            os.rename(self.file, new_file)
         except Exception as e:
-            with open("error.txt", "a") as log:
-                log.write(e)
-            return None
+            with open(os.path.join(work_path, "error.txt"), "a") as errlog: errlog.write(e)
 
     def text_layers (self):
         """

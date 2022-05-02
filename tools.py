@@ -3,20 +3,22 @@ PRESHTILDEATH TOOLS
 """
 import os
 import re
+import json
 import math
+import requests
 import photoshop.api as ps
 import proxyshop.helpers as psd
 from proxyshop import gui
 # imports for fetching SVGs from scryfall, then converting them to pdf
 # from reportlab.graphics import renderPDF
 # from svglib.svglib import svg2rlg
-# import lxml
-# import requests
 
 # loop up through parent directories
 def parent_dirs(file, depth=1):
     for d in range(depth): file = os.path.dirname(file)
     return file
+
+cwd = parent_dirs(__file__, 4)
 
 def rgbcolor(r, g, b):
     color = ps.SolidColor()
@@ -96,35 +98,65 @@ def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord
 
 def empty_mana_cost(layer_set):
     black = rgbcolor(0, 0, 0)
-    layer = add_layer()
+    app.activeDocument.activeLayer = layer_set
+    layer = add_layer("Empty")
     app.activeDocument.activeLayer = layer
     l, t, r, b = [1913, 255, 1918, 365]
     app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
     app.activeDocument.selection.fill(black)
-    app.activeDocument.selection.cut()
-    app.activeDocument.selection.deselect()
-    app.activeDocument.activeLayer = layer_set
-    layer.remove()
-    layer = app.activeDocument.paste()
-    layer.name = "Empty"
     return layer
 
 def get_set_pdf(code):
-    if code.lower() == 'con':
-        newcode = 'conflux'
-        code_pdf = os.path.join(root_dir, f'SetPDF/{newcode}.pdf')
+    # Fix conflux
+    if code.upper() == "CON": code = "CONFLUX"
+    else: code = code.upper()
+    # Make sure the Set PDF folder exists
+    pdf_folder = os.path.join(cwd, "SetPDF")
+    try: os.mkdir(pdf_folder)
+    except: pass
+    # Open up our JSON file if it exists
+    set_pdf_json = os.path.join(pdf_folder, "set_pdf.json")
+    with open(set_pdf_json, "r") as file:
+        set_json = json.load(file)
+    print(set_json["UNF"]["codes"])
+    # Skip if empty
+    if os.path.getsize(set_pdf_json) > 32:
+        # This block is if the JSON file points to an accurate PDF (or fixes that)
+        for key in set_json:
+            if code in set_json[key]["codes"]:
+                if not os.path.exists(set_json[key]["pdf"]): # Found the code, but the pdf file is missing
+                    pdf_scrape(set_json[key]["icon_svg_uri"], set_json[key]["pdf"])
+                return set_json[key]["pdf"]
+        # This block is to update the JSON and fetch the PDF if necessary
+        temp_dict, filename = scry_scrape(code) # Check scryfall for the base code
+        if filename in set_json:
+            set_json[filename]["codes"].append(temp_dict["codes"])
+        else:
+            set_json[filename] = temp_dict
+            pdf_scrape(set_json[filename]["icon_svg_uri"], set_json[filename]["pdf"])
+        with open(set_pdf_json, "w") as file: json.dump(set_json, file)
+        return set_json[code]["pdf"]
+    # Pull data from scryfall and update our JSON file
     else:
-        newcode = code
-        code_pdf = os.path.join(root_dir, f'SetPDF/{newcode}.pdf')
-    if os.path.exists(code_pdf): return code_pdf
-    # else:
-    #     code_svg = os.path.join(root_dir, f'SetPDF/{newcode}.svg')
-    #     set_json = requests.get(f'https://api.scryfall.com/sets/{code}', timeout=1).json()
-    #     scry_svg = requests.get(set_json['icon_svg_uri'], timeout=1).content
-    #     with open(code_svg, 'wb') as svg_temp: svg_temp.write(scry_svg)
-    #     renderPDF.drawToFile(svg2rlg(code_svg), code_pdf)
-    #     os.remove(code_svg)
-    #     return code_pdf
+        set_json, filename = scry_scrape(code)
+        pdf_scrape(set_json[filename]["icon_svg_uri"], set_json[filename]["pdf"])
+        with open(set_pdf_json, "w") as file: json.dump(set_json, file)
+        return set_json[filename]["pdf"]
+
+def scry_scrape(code):
+    set_json = requests.get(f"https://api.scryfall.com/sets/{code}", timeout=1).json()
+    code = set_json["code"]
+    icon_svg_uri = set_json["icon_svg_uri"]
+    filename = os.path.splitext(os.path.basename(icon_svg_uri))[0].upper()
+    pdf = os.path.join(cwd, f"{filename}.pdf")
+    return { "codes": [code], "pdf": pdf, "icon_svg_uri": icon_svg_uri }, filename
+
+def pdf_scrape(icon_svg_uri, file):
+    code_svg = os.path.join(os.getcwd(), "scrysvg.svg")
+    scry_svg = requests.get(icon_svg_uri, timeout=1).content
+    with open(code_svg, "wb") as svg: svg.write(scry_svg)
+    # renderPDF.drawToFile(svg2rlg(code_svg), file)
+    os.remove(code_svg)
     
 def get_expansion(layer, rarity, reference_layer, set_pdf):
     """
@@ -193,13 +225,17 @@ def get_text_bounding_box(layer, text_width=None, text_height=None):
     return [text_width, text_height]
 
 # Check if a file already exists, then adds (x) if it does
-def filename_append(work_path, file_name, extension):
-    if os.path.exists(os.path.join(work_path, f'{file_name}{extension}')):
+def filename_append(file, send_path):
+    file_name = os.path.basename(file) # image.jpg
+    file_name, extension = os.path.splitext(file_name) # image, .jpg
+    test_path = os.path.join(send_path, f'{file_name}{extension}')
+    if os.path.exists(test_path): # location/image.jpg
         multi = 1
-        while os.path.exists(os.path.join(work_path, f'{file_name} ({multi}){extension}')):
+        test_path = os.path.join(send_path, f'{file_name} ({multi}){extension}')
+        while os.path.exists(test_path): # location/image (1).jpg
             multi += 1
-        return f'{file_name} ({multi})'
-    else: return file_name
+            test_path = os.path.join(send_path, f'{file_name} ({multi}){extension}')
+    return test_path #  returns "location/image.jpg" or "location/image (x).jpg"
 
 # Resize layer to reference, center vertically, and line it up with the right bound
 def frame_expansion_symbol(layer, reference_layer):
