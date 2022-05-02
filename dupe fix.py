@@ -1,3 +1,5 @@
+import time
+start = time.process_time_ns()
 import os
 import json
 import requests
@@ -21,23 +23,19 @@ def scry_scrape ():
         icon_svg_uri = sets["icon_svg_uri"]
         filename = path.splitext(path.basename(icon_svg_uri))[0].upper()
         if filename == "CON": filename = "CONFLUX"
-        if filename in set_dict:
-            set_dict[filename]["codes"].append(setcode)
-        else:
-            svg_file = path.join(cwd, f'{filename}.svg')
-            pdf_file = path.join(cwd, f'{filename}.pdf')
-            if not path.exists(pdf_file):
-                print(f"Scraping {filename}.svg and converting to .pdf ...", end=" ")
-                scry_svg = requests.get(icon_svg_uri, timeout=1).content
-                with open(svg_file, "wb") as svg: svg.write(scry_svg)
-                renderPDF.drawToFile(svg2rlg(svg_file), pdf_file)
-                os.remove(svg_file)
-            set_dict[filename] = {
-                "codes": [setcode],
-                "pdf": pdf_file,
-                "icon_svg_uri": icon_svg_uri
-                }
-            print(f"{filename} exists!")
+        if filename in set_dict: set_dict[filename].append(setcode)
+        else: set_dict[filename] = [setcode]
+        # if filename in set_dict:
+        #     set_dict[filename].append(setcode)
+        # else:
+        #     pdf_file = path.join(cwd, f'{filename}.pdf')
+        #     if not path.exists(pdf_file):
+        #         svg_file = path.join(cwd, f'{filename}.svg')
+        #         scry_svg = requests.get(icon_svg_uri, timeout=1).content
+        #         with open(svg_file, "wb") as svg: svg.write(scry_svg)
+        #         renderPDF.drawToFile(svg2rlg(svg_file), pdf_file)
+        #         os.remove(svg_file)
+        #     set_dict[filename] = [setcode]
     return set_dict
 
 def json_write(filename, dict):
@@ -55,3 +53,5 @@ def json_read(filename):
 json_file = path.join(cwd, "set_pdf.json")
 json_dict = scry_scrape()
 json_write(json_file, json_dict)
+final = time.process_time_ns() - start
+print(final/(10 ** 9))
