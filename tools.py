@@ -15,6 +15,7 @@ def parent_dirs(file, depth=1):
     return file
 
 cwd = parent_dirs(__file__, 4)
+plugin_dir = parent_dirs(__file__)
 
 def rgbcolor(r, g, b):
     color = ps.SolidColor()
@@ -25,7 +26,6 @@ def rgbcolor(r, g, b):
 
 # the whole ass mana cost
 def mana_cost_render(layer_set, mana_cost):
-    burngrey = rgbcolor(150, 150, 150)
     sym_lookup = [
         [ 'W', 'U', 'B', 'R', 'G', 'C'],
         [ 'W/U', 'W/B', 'U/B', 'U/R', 'B/R', 'B/G'],
@@ -41,11 +41,11 @@ def mana_cost_render(layer_set, mana_cost):
     cost_lookup = mana_cost[1:-1].split('}{')
     cost_lookup.reverse() # Rendering right to left
     card_doc = app.activeDocument
-    symb_doc = app.open(f'{root_dir}/templates/preshtildeath/mana.png')
+    symb_doc = app.open(f'{root_dir}/templates/preshtildeath/mana fill.png')
     # w = 110
     # h = 110
-    w = symb_doc.width / len(max(line for line in sym_lookup))
-    h = symb_doc.height / len(sym_lookup)
+    w = symb_doc.width / len(sym_lookup) # Width divided by length of whole list
+    h = symb_doc.height / max(len(line for line in sym_lookup)) # Height divided by longest line in list
     for r in range(len(cost_lookup)):
         for sym_row in sym_lookup:
             if cost_lookup[r] in sym_row:
@@ -59,22 +59,23 @@ def mana_cost_render(layer_set, mana_cost):
     layer_styles_visible(layer_set, True)
     layer = layer_set.merge()
     # shadow stuff
-    app.activeDocument.activeLayer = layer
-    magic_wand_select(layer, 0, 0)
-    app.activeDocument.selection.expand(20)
-    app.activeDocument.selection.invert()
-    app.activeDocument.selection.feather(30)
-    shadow_layer = add_layer("Shadow")
-    app.activeDocument.activeLayer = shadow_layer
-    app.activeDocument.selection.fill(burngrey)
-    shadow_layer.blendMode = ps.BlendMode.ColorBurn
-    shadow_layer.visible = True
-    shadow_layer.moveAfter(layer.parent)
-    app.activeDocument.selection.deselect()
-    magic_wand_select(layer, 0, 0)
-    app.activeDocument.selection.expand(2)
-    app.activeDocument.selection.clear()
-    app.activeDocument.selection.deselect()
+        # burngrey = rgbcolor(150, 150, 150)
+        # app.activeDocument.activeLayer = layer
+        # magic_wand_select(layer, 0, 0)
+        # app.activeDocument.selection.expand(20)
+        # app.activeDocument.selection.invert()
+        # app.activeDocument.selection.feather(30)
+        # shadow_layer = add_layer("Shadow")
+        # app.activeDocument.activeLayer = shadow_layer
+        # app.activeDocument.selection.fill(burngrey)
+        # shadow_layer.blendMode = ps.BlendMode.ColorBurn
+        # shadow_layer.visible = True
+        # shadow_layer.moveAfter(layer.parent)
+        # app.activeDocument.selection.deselect()
+        # magic_wand_select(layer, 0, 0)
+        # app.activeDocument.selection.expand(2)
+        # app.activeDocument.selection.clear()
+        # app.activeDocument.selection.deselect()
     return layer
                     
 def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord):
@@ -97,56 +98,55 @@ def empty_mana_cost(layer_set):
     l, t, r, b = [1913, 255, 1918, 365]
     app.activeDocument.selection.select([[l, t], [r, t], [r, b], [l, b]])
     app.activeDocument.selection.fill(black)
+    layer.blendMode = ps.BlendMode.Screen
     return layer
 
+# Grab the pdf file from our database
 def get_set_pdf(code):
-    set_json, key = {}, "" # Set blank values
-    code = code.upper()
+    code, key = code.upper(), "" # Init values
     pdf_folder = os.path.join(cwd, "SetPDF")
-    try: os.mkdir(pdf_folder) # Make sure the Set PDF folder exists
-    except: pass
+    if not os.path.exists(pdf_folder): os.mkdir(pdf_folder) # Make sure the Set PDF folder exists
     set_pdf_json = os.path.join(pdf_folder, "set_pdf.json")
     if os.path.getsize(set_pdf_json) > 32: # Open up our JSON file if it exists
         with open(set_pdf_json, "r") as file: set_json = json.load(file)
+    else: set_json = {}
     for set in set_json: # Iterate JSON looking for a match
-        if code in set_json[set]:
-            key = set
-            break
-    if key not in set_json: # No match, gotta fetch
+        if code in set_json[set]: key = set; break
+    if key == "": # No match, gotta fetch
         key = scry_scrape(code)
         if key in set_json: set_json[key].append(code) # Append list
         else: set_json[key] = [code] # Create list
     pdf = os.path.join(pdf_folder, f"{key}.pdf")
-    if not os.path.exists(pdf): pdf_scrape(pdf) # Fetch SVG and convert to PDF if needed
+    if not os.path.exists(pdf): pdf_fetch(pdf_folder, key) # Fetch SVG and convert to PDF if needed
     with open(set_pdf_json, "w") as file: json.dump(set_json, file)
     return pdf
 
+# Take a set code and return the corresponding image name
 def scry_scrape(code):
     set_json = requests.get(f"https://api.scryfall.com/sets/{code}", timeout=1).json()
-    icon_svg_uri = set_json["icon_svg_uri"]
-    filename = os.path.basename(icon_svg_uri)
-    name = os.path.splitext(filename)[0].upper()
-    if name == "CON": return "CONFLUX"
+    name = os.path.splitext(os.path.basename(set_json["icon_svg_uri"]))[0].upper() # Grab the SVG name
+    if name == "CON": return "CONFLUX" # Turns out you can't make a file named CON
     return name
 
-def pdf_scrape(file):
+# Take the image name and download from scryfall, then convert to pdf
+def pdf_fetch(folder, code):
     from reportlab.graphics import renderPDF
     from svglib.svglib import svg2rlg
-    code = os.path.splitext(os.path.basename(file))[0].lower()
+    code = code.lower()
+    file = os.path.join(folder, f"{code}.pdf")
     temp_svg = os.path.join(os.getcwd(), "temp_svg.svg")
     scry_svg = requests.get(f"https://c2.scryfall.com/file/scryfall-symbols/sets/{code}.svg", timeout=1).content
     with open(temp_svg, "wb") as svg: svg.write(scry_svg)
     renderPDF.drawToFile(svg2rlg(temp_svg), file)
     os.remove(temp_svg)
-    
-def get_expansion(layer, rarity, reference_layer, set_pdf):
-    """
-     * Pastes the given PDF into the specified layer.
-    """
+
+# Pastes the given PDF into the specified layer.
+def get_expansion(layer, rarity, ref_layer, offset_layer, set_pdf):
+    white = rgbcolor(255,255,255)
     prev_active_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     # open pdf twice as big as reference just in case
-    max_size = (reference_layer.bounds[2] - reference_layer.bounds[0]) * 2
+    max_size = (ref_layer.bounds[2] - ref_layer.bounds[0]) * 2
     pdf_open(set_pdf, max_size)
     # note context switch to art file
     app.activeDocument.selection.selectAll()
@@ -156,8 +156,8 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     app.activeDocument.paste()
     zero_transform(layer)
     # move and resize symbol to appropriate place
-    frame_expansion_symbol(layer, reference_layer)
-    fill_expansion_symbol(layer, psd.rgb_white())
+    frame_expansion_symbol(layer, ref_layer)
+    fill_expansion_symbol(layer, white)
     # apply rarity mask if necessary, and center it on symbol
     if rarity != "common":
         mask_layer = psd.getLayer(rarity, layer.parent)
@@ -171,6 +171,34 @@ def get_expansion(layer, rarity, reference_layer, set_pdf):
     app.activeDocument.activeLayer = prev_active_layer
     return layer
 
+# Resize layer to reference, center vertically, and line it up with the right bound
+def frame_expansion_symbol(layer, reference_layer):
+    lay_dim = psd.compute_layer_dimensions(layer)
+    ref_dim = psd.compute_layer_dimensions(reference_layer)
+
+    # Determine how much to scale the layer by such that it fits into the reference layer's bounds
+    scale_factor = 100 * min(
+        ref_dim['width'] / lay_dim['width'],
+        ref_dim['height'] / lay_dim['height']
+    )
+    layer.resize(scale_factor, scale_factor)
+
+    psd.select_layer_pixels(reference_layer)
+    app.activeDocument.activeLayer = layer
+    # Align verticle center, horizontal right
+    psd.align_vertical()
+    layer.translate(reference_layer.bounds[2]-layer.bounds[2],0)
+    app.activeDocument.selection.deselect()
+    # Check against pixel curvature
+    # dupe = layer.duplicate()
+    # magic_wand_select(offset_layer, 10, 10)
+    # app.activeDocument.selection.invert()
+    # app.activeDocument.selection.clear()
+    # app.activeDocument.selection.deselect()
+    # x_delta = dupe.bounds[2] - dupe.bounds[0]
+    # layer.translate(-x_delta,0)
+    # dupe.remove()
+
 def fill_expansion_symbol(ref, stroke_color):
     """
      * Give the symbol a background for open space symbols (i.e. M10)
@@ -178,8 +206,6 @@ def fill_expansion_symbol(ref, stroke_color):
     x, y = ref.bounds[0]-50, ref.bounds[1]-50
     # Magic Wand non-contiguous outside symbol
     magic_wand_select(ref, x, y, 'new', 0, True, False)
-
-    # Magic Wand subtract contiguous outside symbol
     magic_wand_select(ref, x, y, 'sub', 0, True)
 
     # Make a new layer and fill with stroke color
@@ -217,25 +243,6 @@ def filename_append(file, send_path):
             multi += 1
             test_path = os.path.join(send_path, f'{file_name} ({multi}){extension}')
     return test_path #  returns "location/image.jpg" or "location/image (x).jpg"
-
-# Resize layer to reference, center vertically, and line it up with the right bound
-def frame_expansion_symbol(layer, reference_layer):
-    lay_dim = psd.compute_layer_dimensions(layer)
-    ref_dime = psd.compute_layer_dimensions(reference_layer)
-
-    # Determine how much to scale the layer by such that it fits into the reference layer's bounds
-    scale_factor = 100 * min(
-        ref_dime['width'] / lay_dim['width'],
-        ref_dime['height'] / lay_dim['height']
-    )
-    layer.resize(scale_factor, scale_factor)
-
-    psd.select_layer_pixels(reference_layer)
-    app.activeDocument.activeLayer = layer
-
-    psd.align_vertical()
-    layer.translate(reference_layer.bounds[2]-layer.bounds[2],0)
-    app.activeDocument.selection.deselect()
 
 # Gives an estimated number of lines at default text size
 def dirty_text_scale (input_text):

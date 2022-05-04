@@ -3,6 +3,7 @@ PRESHTILDEATH TEMPLATES
 """
 import os
 import tools
+from configs import config
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
 import proxyshop.helpers as psd
@@ -10,7 +11,6 @@ import photoshop.api as ps
 from proxyshop.constants import con
 from proxyshop.settings import cfg
 from proxyshop import gui
-from configs import config
 console = gui.console_handler
 app = ps.Application()
 
@@ -47,9 +47,6 @@ class FullArtModularTemplate (temp.StarterTemplate):
         tools.zero_transform(self.art_layer)
 
     def collector_info (self): pass
-    def basic_text_layers(self, text_and_icons): pass
-    def enable_hollow_crown(crown, pinlines): pass
-    def paste_scryfall_scan(self, reference_layer, rotate=False): pass
 
     def __init__ (self, layout, file):
         self.cwd = tools.parent_dirs(__file__, 4)
@@ -90,14 +87,11 @@ class FullArtModularTemplate (temp.StarterTemplate):
             with open(os.path.join(work_path, "error.txt"), "a") as errlog: errlog.write(e)
 
     def text_layers (self):
-        """
-         * Set up the card's mana cost, name (scaled to not overlap with mana cost), expansion symbol, and type line
-         * (scaled to not overlap with the expansion symbol).
-        """
-
+        # Set up some layers
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
         exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
         exp_ref = psd.getLayer('Expansion', 'Ref')
+        exp_offset = psd.getLayer('Expansion Offset', 'Ref')
         type_layer = psd.getLayer('Typeline', 'Text and Icons')
         textbox_ref = psd.getLayer('Textbox', 'Ref')
         
@@ -110,30 +104,57 @@ class FullArtModularTemplate (temp.StarterTemplate):
         elif scale <= 3: modifier = 160
         else: modifier = 0
         
+        # Cap the modifier for creature textbox
+        if self.is_creature and modifier > 160: modifier = 160
+            
+        # Apply typeline translate and textbox stretch
+        type_layer.translate(0, modifier)
+        tools.layer_vert_stretch(textbox_ref, modifier, 'bottom')
+        
         # Set artist info
         artist_text = psd.getLayer('Artist', 'Legal').textItem
         artist_text.contents = self.layout.artist
         
         # Do the mana cost
-        # If config sets symbols to png mode
-        # mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
-        # mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
-        # else:
-        mana_layer = psd.getLayer('Text', 'Mana Cost')
-        mana_layer.visible = True
-        self.tx_layers.append(
-            txt_layers.BasicFormattedTextField(
-                layer=mana_layer,
-                text_contents=self.layout.mana_cost,
-                text_color=self.black
+        if config.png_mana:
+            mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
+            mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
+        else:
+            mana_layer = psd.getLayer('Text', 'Mana Cost')
+            mana_layer.visible = True
+            self.tx_layers.append(
+                txt_layers.BasicFormattedTextField(
+                    layer=mana_layer,
+                    text_contents=self.layout.mana_cost,
+                    text_color=self.black
+                )
             )
-        )
+        
+        # Set symbol
+        console.update("Determine PDF file")
+        set_pdf = tools.get_set_pdf(self.layout.set)
+        console.update("Open PDF file")
+        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, exp_offset, set_pdf)
+        
+        # Name and Type text
+        self.tx_layers.extend([
+            ScaledTextField(
+                layer = type_layer,
+                text_contents = self.layout.type_line,
+                text_color = psd.get_text_layer_color(type_layer),
+                reference_layer = exp_layer
+            ),
+            txt_layers.ScaledTextField(
+                layer = name_layer,
+                text_contents = self.layout.name,
+                text_color = psd.get_text_layer_color(name_layer),
+                reference_layer = mana_layer
+            )
+        ])
         
         if self.is_creature:        
             # Center the rules text if the text is at most two lines
             is_centered = bool( scale <= 2)
-            # Fix modifier
-            if modifier > 160: modifier = 160
             # Creature card - set up creature layer for rules text and insert p/t
             power_toughness = psd.getLayer('Power / Toughness', 'Text and Icons')
             rules_text = psd.getLayer(f'Rules Text - Creature {modifier}', 'Text and Icons')
@@ -175,34 +196,6 @@ class FullArtModularTemplate (temp.StarterTemplate):
                     fix_length = False
                 )
             )
-            
-        # Apply typeline translate and textbox stretch
-        type_layer.translate(0, modifier)
-        tools.layer_vert_stretch(textbox_ref, modifier, 'bottom')
-        
-        # Set symbol
-        set_pdf = tools.get_set_pdf(self.layout.set)
-        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, set_pdf)
-        
-        # Mana Cost, Name, and Type text
-        self.tx_layers.extend([
-            txt_layers.ScaledTextField(
-                layer = name_layer,
-                text_contents = self.layout.name,
-                text_color = psd.get_text_layer_color(name_layer),
-                reference_layer = mana_layer
-            ),
-            ScaledTextField(
-                layer = type_layer,
-                text_contents = self.layout.type_line,
-                text_color = psd.get_text_layer_color(type_layer),
-                reference_layer = exp_layer
-            )
-        ])
-    #     self.tx_layers.sort(key=self.layer_sort) # Top to bottom
-
-    # def layer_sort (self, tx_layer):
-    #     return tx_layer.layer.bounds[1]
 
     def enable_frame_layers (self):
         # Eldrazi formatting?
