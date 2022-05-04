@@ -118,7 +118,10 @@ class FullArtModularTemplate (temp.StarterTemplate):
         # Do the mana cost
         if config.png_mana:
             mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
-            mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
+            if len(self.layout.mana_cost) > 0:
+                mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
+            else:
+                mana_layer = tools.empty_mana_cost(exp_ref.parent)
         else:
             mana_layer = psd.getLayer('Text', 'Mana Cost')
             mana_layer.visible = True

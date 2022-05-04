@@ -39,24 +39,26 @@ def mana_cost_render(layer_set, mana_cost):
         [ 'R/G/P', 'R/W/P', 'G/W/P', 'G/U/P']
     ]
     cost_lookup = mana_cost[1:-1].split('}{')
-    cost_lookup.reverse() # Rendering right to left
+    w = 110
+    h = 110
     card_doc = app.activeDocument
     symb_doc = app.open(f'{root_dir}/templates/preshtildeath/mana fill.png')
-    # w = 110
-    # h = 110
-    w = symb_doc.width / len(sym_lookup) # Width divided by length of whole list
-    h = symb_doc.height / max(len(line for line in sym_lookup)) # Height divided by longest line in list
+    # w = symb_doc.width / len(sym_lookup) # Width divided by length of whole list
+    # h = symb_doc.height / max(len(line for line in sym_lookup)) # Height divided by longest line in list
     for r in range(len(cost_lookup)):
-        for sym_row in sym_lookup:
-            if cost_lookup[r] in sym_row:
-                x = sym_lookup.index(sym_row) * w
-                y = sym_row.index(cost_lookup[r]) * h
-                r_delta = 1918 - ((r + 1) * w + (r * 5))
-                copy_from_paste_to(symb_doc, card_doc, layer_set, [x, y, x+w, y+h], [r_delta, 248])
-                break
+        for x in range(len(sym_lookup)):
+            for y in range(len(sym_lookup[x])):
+                if cost_lookup[-1] == sym_lookup[x][y]:
+                    layer = copy_from_paste_to(
+                        symb_doc,
+                        card_doc,
+                        layer_set,
+                        [x*w, y*h, (x+1)*w, (y+1)*h],
+                        [1918-((r+1)*w+(r*5)), 251]
+                    )
+        cost_lookup.pop()
     # cleanup
     symb_doc.close(ps.SaveOptions.DoNotSaveChanges)
-    layer_styles_visible(layer_set, True)
     layer = layer_set.merge()
     # shadow stuff
         # burngrey = rgbcolor(150, 150, 150)
@@ -302,11 +304,6 @@ def paste_file(layer, file):
     # return document to previous state
     app.activeDocument.activeLayer =prev_active_layer
 
-def add_layer(name=None):
-    layer = app.activeDocument.artLayers.add()
-    if name is not None: layer.name = name
-    return layer
-
 """
 HERE LIES ALL THE COMPLICATED BULLSHIT THAT MAKES LITTLE SENSE
 """
@@ -317,14 +314,6 @@ def cTID(char):
 
 def sTID(string):
     return app.stringIDToTypeID(string)
-
-def get_layer_index(layerID):
-    ref = ps.ActionReference()
-    ref.putIdentifier(cTID("Lyr "), layerID)
-    try:
-        app.activeDocument.backgroundLayer
-        return app.executeActionGet(ref).getInteger(cTID("ItmI"))-1
-    except: return app.executeActionGet(ref).getInteger(cTID("ItmI"))
 
 # Selects the layer mask for editing
 def layer_mask_select (layer):
@@ -358,6 +347,14 @@ def magic_wand_select(layer, x, y, style='new', t=0, a=True, c=True, s=False):
     app.executeAction(cTID(select_key[style]), click, 3)
     app.activeDocument.activeLayer = old_layer
 
+def get_layer_index(layerID):
+    ref = ps.ActionReference()
+    ref.putIdentifier(cTID("Lyr "), layerID)
+    try:
+        app.activeDocument.backgroundLayer
+        return app.executeActionGet(ref).getInteger(cTID("ItmI"))-1
+    except: return app.executeActionGet(ref).getInteger(cTID("ItmI"))
+
 def move_inside(fromlayer, layerset):
     fromID = fromlayer.id
     toID = layerset.id
@@ -374,6 +371,18 @@ def move_inside(fromlayer, layerset):
         app.executeAction(cTID("move"), desc, 3)
     except Exception as err:
         return err
+
+def add_layer(name=None):
+    layer = app.activeDocument.activeLayer
+    desc = ps.ActionDescriptor()
+    ref = ps.ActionReference()
+    ref.putClass(cTID("Lyr "))
+    desc.putReference(cTID("null"), ref)
+    desc.putInteger(cTID("LyrI"), get_layer_index(layer.id))
+    app.executeAction(cTID("Mk  "), desc, 3)
+    layer = app.activeDocument.activeLayer
+    if name is not None: layer.name = name
+    return layer
 
 # equivalent of ctrl+shift+v
 def paste_in_place():
