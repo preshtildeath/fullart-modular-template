@@ -42,7 +42,7 @@ def mana_cost_render(layer_set, mana_cost):
     w = 110
     h = 110
     card_doc = app.activeDocument
-    symb_doc = app.open(f'{root_dir}/templates/preshtildeath/mana fill.png')
+    symb_doc = app.open(f'{plugin_dir}/assets/mana.png')
     # w = symb_doc.width / len(sym_lookup) # Width divided by length of whole list
     # h = symb_doc.height / max(len(line for line in sym_lookup)) # Height divided by longest line in list
     for r in range(len(cost_lookup)):
@@ -89,7 +89,11 @@ def copy_from_paste_to(fromdoc, todoc, todoc_layer_set, copy_bounds, paste_coord
     app.activeDocument = todoc
     app.activeDocument.activeLayer = todoc_layer_set
     layer = app.activeDocument.paste()
-    layer.translate(x-layer.bounds[0],y-layer.bounds[1])
+    magic_wand_select(layer, 0, 0)
+    app.activeDocument.selection.invert()
+    bounds = app.activeDocument.selection.bounds
+    app.activeDocument.selection.deselect()
+    layer.translate(x-bounds[0],y-bounds[1])
     return layer
 
 def empty_mana_cost(layer_set):
@@ -106,7 +110,7 @@ def empty_mana_cost(layer_set):
 # Grab the pdf file from our database
 def get_set_pdf(code):
     code, key = code.upper(), "" # Init values
-    pdf_folder = os.path.join(cwd, "SetPDF")
+    pdf_folder = os.path.join(plugin_dir, "assets", "Set Symbol PDF")
     if not os.path.exists(pdf_folder): os.mkdir(pdf_folder) # Make sure the Set PDF folder exists
     set_pdf_json = os.path.join(pdf_folder, "set_pdf.json")
     if os.path.getsize(set_pdf_json) > 32: # Open up our JSON file if it exists
@@ -431,7 +435,7 @@ def layer_styles_visible(layer, visible):
     ref1 = ps.ActionReference()
     ref1.putClass(cTID("Lefx"))
     ref1.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"))
-    list1.putEnumerated(ref1)
+    list1.putReference(ref1)
     desc1.putList(cTID("null"), list1)
     app.executeAction(show_hide, desc1, 3)
     app.activeDocument.activeLayer = old_layer
@@ -489,4 +493,3 @@ def bitmap_font(text, bounds):
             txt_dict[word][c] = key_dict[c]
 
 app = ps.Application()
-root_dir = parent_dirs(__file__, 4)

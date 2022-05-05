@@ -117,9 +117,10 @@ class FullArtModularTemplate (temp.StarterTemplate):
         
         # Do the mana cost
         if config.png_mana:
-            mana_layer = psd.getLayerSet('Symbols', 'Mana Cost')
+            console.update("Getting mana cost images")
+            mana_set = psd.getLayerSet('Mana Cost')
             if len(self.layout.mana_cost) > 0:
-                mana_layer = tools.mana_cost_render(mana_layer, self.layout.mana_cost)
+                mana_layer = tools.mana_cost_render(mana_set, self.layout.mana_cost)
             else:
                 mana_layer = tools.empty_mana_cost(exp_ref.parent)
         else:
@@ -134,9 +135,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
             )
         
         # Set symbol
-        console.update("Determine PDF file")
         set_pdf = tools.get_set_pdf(self.layout.set)
-        console.update("Open PDF file")
         exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, exp_offset, set_pdf)
         
         # Name and Type text
