@@ -1,24 +1,24 @@
 {
 	"normal": {
-		"Fullart Modular": "FullArtModularTemplate",
+		"Modular Fullart": "FullArtModularTemplate",
 		"Fullart Textlesss": "FullArtTextlessTemplate"
 	},
 	"ixalan": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Modular Fullart": "DFCModularTemplate"
 	},
 	"basic": {
-		"Fullart Modular": "BasicModularTemplate"
+		"Modular Fullart": "BasicModularTemplate"
 	},
 	"transform_front": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Modular Fullart": "DFCModularTemplate"
 	},
 	"transform_back": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Modular Fullart": "DFCModularTemplate"
 	},
 	"mdfc_front": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Modular Fullartr": "DFCModularTemplate"
 	},
 	"mdfc_back": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Modular Fullart": "DFCModularTemplate"
 	}
 }

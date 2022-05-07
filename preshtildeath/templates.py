@@ -51,6 +51,8 @@ class FullArtModularTemplate (temp.StarterTemplate):
         cfg.remove_flavor = True
         cfg.remove_reminder = True
         self.black = tools.rgbcolor(0, 0, 0)
+        filename = os.path.splitext(os.path.basename(file))[0]
+        self.set = filename[filename.rfind("[")+1:filename.rfind("]")]
         
         super().__init__(layout, file)
 
@@ -59,6 +61,18 @@ class FullArtModularTemplate (temp.StarterTemplate):
         except: self.is_basic = False
         try: self.is_land = bool(self.layout.type_line.find("Land") >= 0 or self.is_basic)
         except: self.is_land = False
+
+        # Check config
+        if config.hollow_mana:
+            # change mana symbol colors
+            con.rgb_c = {'r': 204, 'g': 194, 'b': 193}
+            con.rgb_w = {'r': 255, 'g': 251, 'b': 214}
+            con.rgb_u = {'r': 170, 'g': 224, 'b': 250}
+            con.rgb_b = {'r': 159, 'g': 146, 'b': 143}
+            con.rgb_r = {'r': 249, 'g': 169, 'b': 143}
+            con.rgb_g = {'r': 154, 'g': 211, 'b': 175}
+            for sym in con.symbols:
+                con.symbols[sym] = con.symbols[sym].replace("o", "v")
                 
         # Choose your border
         if self.is_land: self.art_reference = psd.getLayer('Full Art Frame', 'Ref')
@@ -70,10 +84,11 @@ class FullArtModularTemplate (temp.StarterTemplate):
         self.text_layers()
 
     def post_execute(self):
+        if not config.move_art: return
         # Move art source to a new folder
         console.update("Moving art file...")
         work_path = os.path.dirname(self.file)
-        new_name = f"{self.layout.name} ({self.layout.artist}) [{self.layout.set}]"
+        new_name = f"{self.layout.name} ({self.layout.artist}) [{self.set}]"
         ext = os.path.splitext(os.path.basename(self.file))[1]
         fin_path = os.path.join(work_path, 'finished')
         new_file = os.path.join(fin_path, f"{new_name}{ext}")
@@ -84,6 +99,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
 
     def text_layers (self):
         # Set up some layers
+        mana_layer = psd.getLayer('Text', 'Mana Cost')
         name_layer = psd.getLayer('Card Name', 'Text and Icons')
         exp_layer = psd.getLayer('Expansion Symbol', 'Expansion')
         exp_ref = psd.getLayer('Expansion', 'Ref')
@@ -111,31 +127,18 @@ class FullArtModularTemplate (temp.StarterTemplate):
         artist_text = psd.getLayer('Artist', 'Legal').textItem
         artist_text.contents = self.layout.artist
         
-        # Do the mana cost
-        if config.png_mana:
-            console.update("Getting mana cost images")
-            mana_set = psd.getLayerSet('Mana Cost')
-            if len(self.layout.mana_cost) > 0:
-                mana_layer = tools.mana_cost_render(mana_set, self.layout.mana_cost)
-            else:
-                mana_layer = tools.empty_mana_cost(exp_ref.parent)
-        else:
-            mana_layer = psd.getLayer('Text', 'Mana Cost')
-            mana_layer.visible = True
-            self.tx_layers.append(
-                txt_layers.BasicFormattedTextField(
+        # Set symbol
+        console.update(f"Looking up set symbol for [{self.set}]...")
+        set_pdf = tools.get_set_pdf(self.set)
+        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, exp_offset, set_pdf)
+        
+        # Mana, Name, and Type text
+        self.tx_layers.extend([
+            txt_layers.BasicFormattedTextField(
                     layer=mana_layer,
                     text_contents=self.layout.mana_cost,
                     text_color=self.black
-                )
-            )
-        
-        # Set symbol
-        set_pdf = tools.get_set_pdf(self.layout.set)
-        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, exp_offset, set_pdf)
-        
-        # Name and Type text
-        self.tx_layers.extend([
+            ),
             ScaledTextField(
                 layer = type_layer,
                 text_contents = self.layout.type_line,
@@ -240,6 +243,10 @@ class FullArtModularTemplate (temp.StarterTemplate):
 
         # Give the lands a sexy transparent border
         if self.is_land:
+            land_textbox = psd.getLayer("Land", 'Textbox')
+            if not land_textbox.visible:
+                tools.set_opacity(land_textbox, 50)
+                land_textbox.visible = True
             border = psd.getLayerSet('Mask Wearer', 'Border')
             app.activeDocument.activeLayer = psd.getLayer('Normal', border)
             psd.enable_active_layer_mask()
@@ -272,16 +279,19 @@ class FullArtModularTemplate (temp.StarterTemplate):
             app.activeDocument.selection.fill(self.black) # Fill it with black
             app.activeDocument.selection.deselect() # Deselect
 
+class FullArtTextlessTemplate (FullArtModularTemplate):
+
+    def __init__ (self, layout, file):
+        layout.oracle_text = ""
+        super().__init__(layout, file)
+
 class BasicModularTemplate (FullArtModularTemplate):
-      
-    def template_file_name (self):
-        return "preshtildeath/fullart-modular"
     
     def template_suffix (self):
-        names = self.layout.artist.split()
-        if len(names) > 1: last_name = names[-1]
-        else: last_name = names[0]
-        return f"{last_name}) ({self.layout.set}"
+        # names = self.layout.artist.split()
+        # if len(names) > 1: last_name = names[-1]
+        # else: last_name = names[0]
+        return f"{self.layout.artist}) ({self.set}"
 
     def __init__ (self, layout, file):
         self.is_basic = True
@@ -321,7 +331,7 @@ class BasicModularTemplate (FullArtModularTemplate):
             )
         ])
         # Set symbol
-        set_pdf = tools.get_set_pdf(self.layout.set)
+        set_pdf = tools.get_set_pdf(self.set)
         tools.get_expansion(exp_layer, 'common', exp_ref, set_pdf)
 
     def enable_frame_layers (self):
@@ -331,25 +341,7 @@ class BasicModularTemplate (FullArtModularTemplate):
         psd.getLayer(layer_name, 'Type').visible = True
         psd.getLayer(layer_name, 'Border').visible = True
 
-class FullArtTextlessTemplate (FullArtModularTemplate):
-      
-    def template_file_name (self):
-        return "preshtildeath/fullart-modular"
-    
-    def template_suffix (self):
-        return "Fullart Textless"
-
-    def __init__ (self, layout, file):
-        self.layout.oracle_text = ""
-        super().__init__(layout, file)
-
 class DFCModularTemplate (FullArtModularTemplate):
-      
-    def template_file_name (self):
-        return "preshtildeath/fullart-modular"
-    
-    def template_suffix (self):
-        return "Fullart DFC"
 
     def __init__ (self, layout, file):
         super().__init__(layout, file)
@@ -411,6 +403,7 @@ class DFCModularTemplate (FullArtModularTemplate):
         dfc_mask.delete()
 
 class ScaledTextField (txt_layers.TextField):
+
     def __init__ (self, layer, text_contents, text_color, reference_layer):
         super().__init__(layer, text_contents, text_color)
         self.reference_layer = reference_layer

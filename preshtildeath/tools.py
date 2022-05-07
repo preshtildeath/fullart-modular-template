@@ -439,6 +439,19 @@ def layer_styles_visible(layer, visible):
     app.executeAction(show_hide, desc1, 3)
     app.activeDocument.activeLayer = old_layer
 
+def set_opacity(layer, percent):
+    old_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+    desc1 = ps.ActionDescriptor()
+    desc2 = ps.ActionDescriptor()
+    ref1 = ps.ActionReference()
+    ref1.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"))
+    desc1.putReference(cTID("null"), ref1)
+    desc2.putUnitDouble(cTID("Opct"), cTID("#Prc"), percent)
+    desc1.putObject(cTID("T   "), cTID("Lyr "), desc2)
+    app.executeAction(cTID("setd"), desc1, 3)
+    app.activeDocument.activeLayer = old_layer
+
 # testing to set transform to bicubic auto instead of whatever was used last
 # maybe set it up to change to nearest neighbor or something for certain resizing?
 def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
