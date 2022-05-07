@@ -40,9 +40,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
             return suffix
 
     def load_artwork (self):
-        """
-         * Loads the specified art file into the specified layer.
-        """
+        # Loads the specified art file into the specified layer.
         psd.paste_file(self.art_layer, self.file)
         tools.zero_transform(self.art_layer)
 
@@ -52,7 +50,6 @@ class FullArtModularTemplate (temp.StarterTemplate):
         self.cwd = tools.parent_dirs(__file__, 4)
         cfg.remove_flavor = True
         cfg.remove_reminder = True
-        con.layers["ARTIST"] = "Name"
         self.black = tools.rgbcolor(0, 0, 0)
         
         super().__init__(layout, file)
@@ -63,28 +60,27 @@ class FullArtModularTemplate (temp.StarterTemplate):
         try: self.is_land = bool(self.layout.type_line.find("Land") >= 0 or self.is_basic)
         except: self.is_land = False
                 
-        # lands have a fun border
+        # Choose your border
         if self.is_land: self.art_reference = psd.getLayer('Full Art Frame', 'Ref')
-        # legendary framing is slightly scooted down
         elif self.is_legendary: self.art_reference = psd.getLayer('Legendary Frame', 'Ref')
-        # everything else is just normie
         else: self.art_reference = psd.getLayer('Art Frame', 'Ref')
 
         # Set up text layers
         console.update("Preparing text layers...")
         self.text_layers()
 
-    def post_exectute(self):
+    def post_execute(self):
         # Move art source to a new folder
+        console.update("Moving art file...")
         work_path = os.path.dirname(self.file)
+        new_name = f"{self.layout.name} ({self.layout.artist}) [{self.layout.set}]"
+        ext = os.path.splitext(os.path.basename(self.file))[1]
         fin_path = os.path.join(work_path, 'finished')
-        try: os.mkdir(fin_path)
-        except: pass
-        new_file = tools.filename_append(self.file, fin_path)
-        try:
-            os.rename(self.file, new_file)
-        except Exception as e:
-            with open(os.path.join(work_path, "error.txt"), "a") as errlog: errlog.write(e)
+        new_file = os.path.join(fin_path, f"{new_name}{ext}")
+        if not os.path.exists(fin_path): os.mkdir(fin_path)
+        new_file = tools.filename_append(new_file, fin_path)
+        try: os.replace(self.file, new_file)
+        except Exception as e: console.update("Could not move art file!", exception=e)
 
     def text_layers (self):
         # Set up some layers

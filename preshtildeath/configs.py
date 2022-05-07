@@ -20,10 +20,12 @@ class preshCFG:
 
         self.side_pins = self.file.getboolean("GENERAL", "Side.Pinlines")
         self.png_mana = self.file.getboolean("GENERAL", "PNG.Mana")
+        self.hollow_mana = self.file.getboolean("GENERAL", "Hollow.Mana")
 
     def save(self, c):
         self.file.set("GENERAL", "Side.Pinelines", str(c["side_pins"]))
         self.file.set("GENERAL", "PNG.Mana", str(c["png_mana"]))
+        self.file.set("GENERAL", "Hollow.Mana", str(c["hollow_mana"]))
         with open("config.ini", "w", encoding="utf-8") as cfile:
             self.file.write(cfile)
     

@@ -239,16 +239,15 @@ def get_text_bounding_box(layer, text_width=None, text_height=None):
 
 # Check if a file already exists, then adds (x) if it does
 def filename_append(file, send_path):
-    file_name = os.path.basename(file) # image.jpg
-    file_name, extension = os.path.splitext(file_name) # image, .jpg
-    test_path = os.path.join(send_path, f'{file_name}{extension}')
-    if os.path.exists(test_path): # location/image.jpg
+    file_name, extension = os.path.splitext(os.path.basename(file)) # image, .xxx
+    test_name = os.path.join(send_path, f'{file_name}{extension}')
+    if os.path.exists(test_name): # location/image.xxx
         multi = 1
-        test_path = os.path.join(send_path, f'{file_name} ({multi}){extension}')
-        while os.path.exists(test_path): # location/image (1).jpg
+        test_name = os.path.join(send_path, f'{file_name} ({multi}){extension}')
+        while os.path.exists(test_name): # location/image (1).xxx
             multi += 1
-            test_path = os.path.join(send_path, f'{file_name} ({multi}){extension}')
-    return test_path #  returns "location/image.jpg" or "location/image (x).jpg"
+            test_name = os.path.join(send_path, f'{file_name} ({multi}){extension}')
+    return test_name #  returns "location/image.xxx" or "location/image (x).xxx"
 
 # Gives an estimated number of lines at default text size
 def dirty_text_scale (input_text):
