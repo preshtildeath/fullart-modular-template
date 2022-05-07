@@ -52,7 +52,10 @@ class FullArtModularTemplate (temp.StarterTemplate):
         cfg.remove_reminder = True
         self.black = tools.rgbcolor(0, 0, 0)
         filename = os.path.splitext(os.path.basename(file))[0]
-        self.set = filename[filename.rfind("[")+1:filename.rfind("]")]
+        if filename.rfind("[") < filename.rfind("]"):
+            self.set = filename[filename.rfind("[")+1:filename.rfind("]")]
+        else:
+            self.set = layout.set
         
         super().__init__(layout, file)
 
