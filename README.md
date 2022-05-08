@@ -1,5 +1,5 @@
 # Proxyshop Plugin
-A custom template similar to the standard Borderless frame, except with a border (mostly). The textbox is also modular, and will expand and shrink based on the length of oracle text.
+A custom template for <a href="https://github.com/MrTeferi/MTG-Proxyshop">Proxyshop</a> similar to the standard Borderless frame, except with a border (mostly). The textbox is also modular, and will expand and shrink based on the length of oracle text.
 <br><br>
 Side pinlines are my preference, but I added the option to remove those in the config file.
 # Install instructions
