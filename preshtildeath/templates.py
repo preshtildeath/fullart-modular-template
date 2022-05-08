@@ -3,13 +3,13 @@ PRESHTILDEATH TEMPLATES
 """
 import os
 import tools
-from configs import config
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
 import proxyshop.helpers as psd
 import photoshop.api as ps
 from proxyshop.constants import con
 from proxyshop.settings import cfg
+from configs import config
 from proxyshop import gui
 console = gui.console_handler
 app = ps.Application()
@@ -47,7 +47,6 @@ class FullArtModularTemplate (temp.StarterTemplate):
     def collector_info (self): pass
 
     def __init__ (self, layout, file):
-        self.cwd = tools.parent_dirs(__file__, 4)
         cfg.remove_flavor = True
         cfg.remove_reminder = True
         self.black = tools.rgbcolor(0, 0, 0)
@@ -60,8 +59,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
         super().__init__(layout, file)
 
         # define some characteristics
-        try: self.is_basic
-        except: self.is_basic = False
+        if not hasattr(self, "is_basic"): self.is_basic = False
         try: self.is_land = bool(self.layout.type_line.find("Land") >= 0 or self.is_basic)
         except: self.is_land = False
 
@@ -339,10 +337,12 @@ class BasicModularTemplate (FullArtModularTemplate):
 
     def enable_frame_layers (self):
         layer_name = self.name_key[self.layout.name]
-        psd.getLayer(layer_name, 'Pinlines').visible = True
-        psd.getLayer(layer_name, 'Name').visible = True
-        psd.getLayer(layer_name, 'Type').visible = True
-        psd.getLayer(layer_name, 'Border').visible = True
+        for target in ["Pinlines", "Name", "Type", "Border"]:
+            psd.getLayer(layer_name, target).visible = True
+        for target in ["Name", "Type"]:
+            layer = psd.getLayer("Land", target)
+            tools.set_opacity(layer, 50)
+            layer.visible = True
 
 class DFCModularTemplate (FullArtModularTemplate):
 

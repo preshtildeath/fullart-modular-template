@@ -117,14 +117,17 @@ def get_set_pdf(code):
         with open(set_pdf_json, "r") as file: set_json = json.load(file)
     else: set_json = {}
     for set in set_json: # Iterate JSON looking for a match
-        if code in set_json[set]: key = set; break
+        if code in set_json[set]:
+            key = set
+            break
     if key == "": # No match, gotta fetch
         key = scry_scrape(code)
         if key in set_json: set_json[key].append(code) # Append list
         else: set_json[key] = [code] # Create list
     pdf = os.path.join(pdf_folder, f"{key}.pdf")
     if not os.path.exists(pdf): pdf_fetch(pdf_folder, key) # Fetch SVG and convert to PDF if needed
-    with open(set_pdf_json, "w") as file: json.dump(set_json, file)
+    clean_json = json.dumps(set_json).replace("{", "{\n\t").replace("], ", "],\n\t").replace("]}", "]\n}")
+    with open(set_pdf_json, "w") as file: file.write(clean_json)
     return pdf
 
 # Take a set code and return the corresponding image name
