@@ -2,6 +2,8 @@
 PRESHTILDEATH TEMPLATES
 """
 import os
+import re
+import time
 import tools
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
@@ -17,7 +19,6 @@ app = ps.Application()
 # Ensure scaling with pixels, font size with points
 app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
-app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
 
 class FullArtModularTemplate (temp.StarterTemplate):
     """
@@ -41,22 +42,22 @@ class FullArtModularTemplate (temp.StarterTemplate):
 
     def load_artwork (self):
         # Loads the specified art file into the specified layer.
-        psd.paste_file(self.art_layer, self.file)
+        psd.paste_file(self.art_layer, self.layout.file)
         tools.zero_transform(self.art_layer)
 
     def collector_info (self): pass
 
-    def __init__ (self, layout, file):
+    def __init__ (self, layout):
+        app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
         cfg.remove_flavor = True
         cfg.remove_reminder = True
-        self.black = tools.rgbcolor(0, 0, 0)
-        filename = os.path.splitext(os.path.basename(file))[0]
+        filename = os.path.splitext(os.path.basename(layout.file))[0]
         if filename.rfind("[") < filename.rfind("]"):
             self.set = filename[filename.rfind("[")+1:filename.rfind("]")]
         else:
             self.set = layout.set
         
-        super().__init__(layout, file)
+        super().__init__(layout)
 
         # define some characteristics
         if not hasattr(self, "is_basic"): self.is_basic = False
@@ -73,7 +74,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
             con.rgb_r = {'r': 249, 'g': 169, 'b': 143}
             con.rgb_g = {'r': 154, 'g': 211, 'b': 175}
             for sym in con.symbols:
-                con.symbols[sym] = con.symbols[sym].replace("o", "v")
+                con.symbols[sym] = re.sub("[Qqo]", "v", con.symbols[sym])
                 
         # Choose your border
         if self.is_land: self.art_reference = psd.getLayer('Full Art Frame', 'Ref')
@@ -88,14 +89,14 @@ class FullArtModularTemplate (temp.StarterTemplate):
         if not config.move_art: return
         # Move art source to a new folder
         console.update("Moving art file...")
-        work_path = os.path.dirname(self.file)
+        work_path = os.path.dirname(self.layout.file)
         new_name = f"{self.layout.name} ({self.layout.artist}) [{self.set}]"
-        ext = os.path.splitext(os.path.basename(self.file))[1]
+        ext = os.path.splitext(os.path.basename(self.layout.file))[1]
         fin_path = os.path.join(work_path, 'finished')
         new_file = os.path.join(fin_path, f"{new_name}{ext}")
         if not os.path.exists(fin_path): os.mkdir(fin_path)
         new_file = tools.filename_append(new_file, fin_path)
-        try: os.replace(self.file, new_file)
+        try: os.replace(self.layout.file, new_file)
         except Exception as e: console.update("Could not move art file!", exception=e)
 
     def text_layers (self):
@@ -109,7 +110,7 @@ class FullArtModularTemplate (temp.StarterTemplate):
         textbox_ref = psd.getLayer('Textbox', 'Ref')
         
         # Move typeline and modify textbox reference and text outlines if certain criteria is met
-        scale = tools.dirty_text_scale( self.layout.oracle_text )
+        scale = tools.dirty_text_scale(self.layout.oracle_text, 36)
         if scale > 9: modifier = -320
         elif scale > 6: modifier = -160
         elif scale == 0: modifier = 480
@@ -138,9 +139,9 @@ class FullArtModularTemplate (temp.StarterTemplate):
             txt_layers.BasicFormattedTextField(
                     layer=mana_layer,
                     text_contents=self.layout.mana_cost,
-                    text_color=self.black
+                    text_color=tools.rgbcolor(0, 0, 0)
             ),
-            ScaledTextField(
+            txt_layers.ScaledTextField(
                 layer = type_layer,
                 text_contents = self.layout.type_line,
                 text_color = psd.get_text_layer_color(type_layer),
@@ -277,14 +278,14 @@ class FullArtModularTemplate (temp.StarterTemplate):
             tools.add_select_layer(title_ref) # Create selection based on the type box
             tools.add_select_layer(type_ref) # Add to selection based on the title box
             tools.layer_mask_select(pin_mask) # Select the layer mask
-            app.activeDocument.selection.fill(self.black) # Fill it with black
+            app.activeDocument.selection.fill(tools.rgbcolor(0, 0, 0)) # Fill it with black
             app.activeDocument.selection.deselect() # Deselect
 
 class FullArtTextlessTemplate (FullArtModularTemplate):
 
-    def __init__ (self, layout, file):
+    def __init__ (self, layout):
         layout.oracle_text = ""
-        super().__init__(layout, file)
+        super().__init__(layout)
 
 class BasicModularTemplate (FullArtModularTemplate):
     
@@ -294,9 +295,9 @@ class BasicModularTemplate (FullArtModularTemplate):
         # else: last_name = names[0]
         return f"{self.layout.artist}) ({self.set}"
 
-    def __init__ (self, layout, file):
+    def __init__ (self, layout):
         self.is_basic = True
-        super().__init__(layout, file)
+        super().__init__(layout)
         self.name_key = {
             "Plains": "W",
             "Island": "U",
@@ -346,8 +347,8 @@ class BasicModularTemplate (FullArtModularTemplate):
 
 class DFCModularTemplate (FullArtModularTemplate):
 
-    def __init__ (self, layout, file):
-        super().__init__(layout, file)
+    def __init__ (self, layout):
+        super().__init__(layout)
         
         if config.side_pins: top = "Legendary"
         else: top = "Floating"
@@ -381,7 +382,7 @@ class DFCModularTemplate (FullArtModularTemplate):
             app.activeDocument.selection.expand(2)
             app.activeDocument.selection.invert()
             tools.layer_mask_select(legend_mask)
-            app.activeDocument.selection.fill(self.black)
+            app.activeDocument.selection.fill(tools.rgbcolor(0, 0, 0))
             app.activeDocument.selection.deselect()
             
         # Turn on/off pinlines
@@ -405,49 +406,202 @@ class DFCModularTemplate (FullArtModularTemplate):
         app.activeDocument.selection.deselect()
         dfc_mask.delete()
 
-class ScaledTextField (txt_layers.TextField):
-
-    def __init__ (self, layer, text_contents, text_color, reference_layer):
-        super().__init__(layer, text_contents, text_color)
-        self.reference_layer = reference_layer
-
-    def execute (self):
-        super().execute()
-        layer = self.layer
-        reference_layer = self.reference_layer
-
+class PixelModularTemplate (temp.StarterTemplate):
+    """
+     * Created by preshtildeath
+     * 100dpi pixelart based template
+    """        
+    def template_file_name (self):
+        return "preshtildeath/pixel-template"
+    
+    def template_suffix (self):
+        suffix = "PXL Mod" # Base suffix
         try:
-            if reference_layer.kind is ps.LayerKind.TextLayer:
-                contents = str(reference_layer.textItem.contents)
-                if contents in ("", " "):
-                    reference_layer.textItem.contents = "."
-            elif reference_layer.bounds == [0, 0, 0, 0]:
-                return None
-        except Exception:
-            return None
+            if cfg.save_jpeg: test_file = f"{self.layout.name} ({suffix}).jpg"
+            else: test_file = f"{self.layout.name} ({suffix}).png"
+            end_file = tools.filename_append(test_file, os.path.join(con.cwd, "out")) # Check for multiples
+            end_file = os.path.splitext(os.path.basename(end_file))[0] # Cut to basename, then strip extension
+            end_file = end_file[end_file.find("(")+1:end_file.rfind(")")] # Take out everything between first "(" and last ")"
+            return end_file # "Base suffix) (x"
+        except:
+            return suffix
 
-        # Can't find UnitValue object in python api
-        step_size = 0.25
-        reference_left_bound = reference_layer.bounds[0]
-        layer_left_bound = layer.bounds[0]
-        layer_right_bound = layer.bounds[2]
-        old_size = layer.textItem.size
+    def load_artwork (self):
+        # Set up text layers
+        console.update("Loading artwork...")
+        # Loads the specified art file into the specified layer.
+        ref_w = self.art_reference.bounds[2]-self.art_reference.bounds[0]
+        ref_h = self.art_reference.bounds[2]-self.art_reference.bounds[0]
+        art_doc = app.load(self.layout.file)
+        scale = 100 * max(ref_w / art_doc.width, ref_h / art_doc.height)
+        if scale < 50:
+            tools.img_resize(art_doc, scale)
+            app.activeDocument = art_doc
+            tools.index_color(128)
+        app.activeDocument.selection.selectAll()
+        app.activeDocument.selection.copy()
+        art_doc.close(ps.SaveOptions.DoNotSaveChanges)
+        app.activeDocument.activeLayer = self.art_layer
+        app.activeDocument.paste()
+        app.activeDocument.selection.deselect()
+        tools.zero_transform(layer=self.art_layer, i="nearestNeighbor")
 
-        # Obtain proper spacing for this document size
-        spacing = int((app.activeDocument.width/3264)*60)
+    def collector_info (self): pass
 
-        # Guard against the reference's left bound being left of the layer's left bound or other irregularities
-        if reference_left_bound >= layer_left_bound:
-            # Step down the font till it clears the reference
-            while layer_right_bound > (reference_left_bound-spacing):  # minimum 24 px gap
-                layer.textItem.size = layer.textItem.size - step_size
-                layer_right_bound = layer.bounds[2]
+    def __init__ (self, layout):
+        app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
+        cfg.remove_flavor = True
+        cfg.remove_reminder = True
+        con.font_rules_text = "m5x7"
+        con.font_mana = "Beleren2016"
+        con.rgb_primary = {'r': 217, 'g': 217, 'b': 217}
+        con.rgb_c, con.rgb_w, con.rgb_u, con.rgb_b, con.rgb_r con.rgb_g = [{'r': 0, 'g': 0, 'b': 0}]*6
+        con.rgbi_c = {'r': 217, 'g': 217, 'b': 217}
+        con.rgbi_w = {'r': 255, 'g': 255, 'b': 255}
+        con.rgbi_u = {'r': 128, 'g': 174, 'b': 255}
+        con.rgbi_b = {'r': 170, 'g': 224, 'b': 250}
+        con.rgbi_r = {'r': 255, 'g': 128, 'b': 128}
+        con.rgbi_g = {'r': 128, 'g': 255, 'b': 128}
+        f_txt = list("BWcwubrgLMNOPRSTUV")
+        t_txt = list("IHCWUBRGwubrgwubrg")
+        for s in con.symbols.keys():
+            sym = con.symbols[s]
+            sym = re.sub("[Qqo]", "^", sym)
+            for i in range(len(f_txt)):
+                if f_txt[i] in sym:
+                    sym = sym.replace(f_txt[i], t_txt[i])
+            con.symbols[s] = sym
+        console.update(str(con.symbols))
+        super().__init__(layout)
+        self.text_layers()
 
-        # Shift baseline up to keep text centered vertically
-        if old_size > layer.textItem.size:
-            layer.textItem.baselineShift = (old_size * 0.3) - (layer.textItem.size * 0.3)
+    def text_layers(self):
+        # Set up text layers
+        console.update("Preparing text layers...")
+        
+        name_layer = psd.getLayer('Name', 'Text')
+        type_layer = psd.getLayer('Typeline', 'Text')
+        mana_layer = psd.getLayer('Mana', 'Text')
+        body_layer = psd.getLayer('Oracle', 'Text')
+        textbox = psd.getLayer("Mask", "Textbox")
+        self.art_reference = psd.getLayer("Art Ref", "Ref")
+        title_pin = psd.getLayer("Title", "Pinlines")
+        type_pin = psd.getLayer("Type", "Pinlines")
 
-        # Fix corrected reference layer
-        if reference_layer.kind is ps.LayerKind.TextLayer: 
-            if str(reference_layer.textItem.contents) == ".":
-                reference_layer.textItem.contents = contents
+        # Set artist info
+        artist_text = psd.getLayer('Artist', 'Legal').textItem
+        artist_text.contents = self.layout.artist
+        
+        # Name, Type, Mana, and Body text
+        self.tx_layers.extend([
+            txt_layers.TextField(
+                layer = name_layer,
+                text_contents = self.layout.name,
+                text_color = psd.get_text_layer_color(name_layer)
+            ),
+            txt_layers.TextField(
+                layer = type_layer,
+                text_contents = self.layout.type_line,
+                text_color = psd.get_text_layer_color(type_layer)
+            ),
+            txt_layers.BasicFormattedTextField(
+                layer=mana_layer,
+                text_contents=self.layout.mana_cost,
+                text_color = psd.get_text_layer_color(mana_layer)
+            )
+        ])
+
+        body_text = txt_layers.BasicFormattedTextField(
+                layer = body_layer,
+                text_contents = self.layout.oracle_text,
+                text_color = psd.get_text_layer_color(body_layer)
+            )
+        body_text.execute()
+        body_layer.textItem.antiAliasMethod = ps.AntiAlias.NoAntialias
+        body_layer.textItem.leading *= 0.8
+
+        if self.is_creature:
+            power_toughness = psd.getLayer("PT Text", "Text")
+            self.tx_layers.append(
+                txt_layers.TextField(
+                    layer = power_toughness,
+                    text_contents = f'{self.layout.power}/{self.layout.toughness}',
+                    text_color = psd.get_text_layer_color(power_toughness)
+                )
+            )
+            delta = body_layer.bounds[3]-textbox.bounds[3]+8
+        else:
+            delta = body_layer.bounds[3]-textbox.bounds[3]+3
+            
+        body_layer.translate(0, -delta)
+        type_layer.translate(0, -delta)
+        h_delta = textbox.bounds[3] - (type_pin.bounds[1] + 26)
+        h_percent = h_delta / (textbox.bounds[3] - textbox.bounds[1]) * 100
+        tools.zero_transform(textbox, "nearestNeighbor", y=-delta, h=h_percent)
+
+        l, t, r, b = 10, title_pin.bounds[3]-4, app.activeDocument.width-10, type_pin.bounds[1]+4
+        app.activeDocument.selection.select(
+            [[l, t], [r, t], [r, b], [l, b]]
+        )
+        app.activeDocument.activeLayer = self.art_reference
+        app.activeDocument.selection.fill(tools.rgbcolor(0,0,0))
+
+    def enable_frame_layers (self):
+        # Eldrazi formatting?
+        if self.layout.is_colorless:
+            # Devoid formatting?
+            if self.layout.pinlines == self.layout.twins:
+                self.layout.twins = 'Land'
+            self.layout.pinlines = 'Land'
+            
+        # Twins and p/t box
+        psd.getLayer(self.layout.twins, 'Name').visible = True
+        psd.getLayer(self.layout.twins, 'Type').visible = True
+        if self.is_creature:
+            psd.getLayerSet("PT Box").visible = True
+            psd.getLayer(self.layout.twins, 'PT Box').visible = True
+
+        # Pinlines & Textbox
+        if len(self.layout.pinlines) != 2:
+            psd.getLayer(self.layout.pinlines, 'Pinlines').visible = True
+            psd.getLayer(self.layout.pinlines, 'Textbox').visible = True
+        else:
+            tools.wubrg_layer_sort(self.layout.pinlines, 'Pinlines')
+            tools.wubrg_layer_sort(self.layout.pinlines, 'Textbox')
+
+    def post_text_layers(self):
+        # Set up text layers
+        console.update("Post text layers...")
+
+        mana_layer = psd.getLayer('Mana', 'Text')
+        mana_layer.textItem.antiAliasMethod = ps.AntiAlias.NoAntialias
+        
+        type_layer = psd.getLayer('Typeline', 'Text')
+        if type_layer.bounds[2] > 233:
+            if "Legendary" in self.layout.type_line:
+                if "Creature" in self.layout.type_line:
+                    psd.replace_text(type_layer, "Creature ", "")
+                else:
+                    psd.replace_text(type_layer, "Legendary ", "")
+            elif "Creature" in self.layout.type_line:
+                psd.replace_text(type_layer, "Creature ", "")
+
+        swap = [ "^H", "^A", "^I", "^C", "^D", "^E", "^F", "^G", "^K" ]
+        to = [ "2", "10", "11", "12", "13", "14", "15", "16", "20" ]
+        formatted_layers = [mana_layer, psd.getLayer('Oracle', 'Text')]
+        for layer in formatted_layers:
+            console.update(f"Replacing text in {layer.name}")
+            text_item = layer.textItem.contents
+            for i in range(len(swap)):
+                if swap[i] in text_item:
+                    console.update(f"Replacing {swap[i]} with {to[i]}")
+                    psd.replace_text(layer, swap[i], to[i])
+        psd.replace_text(app.activeDocument.activeLayer, "^", "")
+        mana_layer.textItem.font = con.font_mana
+        time.sleep(0.2)
+        mana_layer.textItem.font = con.font_mana
+
+        if config.crt_filter:
+            app.activeDocument.activeLayer = self.art_layer
+            console.wait("CRT Filter enabled, make any adjustments then hit continue.")
+            tools.crt_filter()
