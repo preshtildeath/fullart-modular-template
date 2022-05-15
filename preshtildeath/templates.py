@@ -29,12 +29,19 @@ def move_art(file, name, artist, set):
     new_name = f"{name} ({artist}) [{set}]"
     ext = os.path.splitext(os.path.basename(file))[1]
 
-    fin_path = os.path.join(work_path, 'finished')
-    if not os.path.exists(fin_path): os.mkdir(fin_path)
+    if "finished" not in str(work_path):
+        fin_path = os.path.join(work_path, 'finished')
+    else:
+        fin_path = work_path
+    if not os.path.exists(fin_path):
+        os.mkdir(fin_path)
 
     new_file = os.path.join(fin_path, f"{new_name}{ext}")
-    try: os.replace(file, tools.filename_append(new_file, fin_path))
-    except Exception as e: console.update("Could not move art file!", exception=e)
+    try:
+        if new_file != file:
+            os.replace(file, tools.filename_append(new_file, fin_path))
+    except Exception as e:
+        console.update("Could not move art file!", exception=e)
 
 
 """
@@ -471,7 +478,7 @@ class PixelModularTemplate (temp.StarterTemplate):
             crt_tools.img_resize(art_doc, scale)
             app.activeDocument = art_doc
             # Dither index
-            crt_tools.index_color(128)
+            crt_tools.index_color(16, "adaptive")
 
         # Copy/paste into template doc, then align with art reference
         app.activeDocument.selection.selectAll()
@@ -664,8 +671,9 @@ class PixelModularTemplate (temp.StarterTemplate):
 
         # Do our big bad CRT filter treatment
         if config.crt_filter:
-            app.activeDocument.activeLayer = self.art_layer
-            console.wait("CRT Filter enabled, make any adjustments then hit continue.")
+            # app.activeDocument.activeLayer = self.art_layer
+            # console.wait("CRT Filter enabled, make any adjustments then hit continue.")
+            console.update("Applying CRT filter...")
             crt_tools.crt_filter()
 
     def post_execute(self):

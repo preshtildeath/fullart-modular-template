@@ -172,9 +172,9 @@ def crt_filter():
 
     # CRT scanline filtered layer
     dupe = base_layer.duplicate()
-    dupe.move(filters, ps.ElementPlacement.PlaceInstrIDe)
+    dupe.move(filters, ps.ElementPlacement.PlaceInside)
     crtlayer = app.activeDocument.artLayers.add()
-    crtlayer.move(filters, ps.ElementPlacement.PlaceInstrIDe)
+    crtlayer.move(filters, ps.ElementPlacement.PlaceInside)
     pattern_fill(crtlayer, crt_file, 10, 10)
     crtlayer.applyMotionBlur(0, 4)
     crtlayer.applyGaussianBlur(1)
