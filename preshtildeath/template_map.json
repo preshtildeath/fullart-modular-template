@@ -1,8 +1,8 @@
 {
 	"normal": {
 		"Fullart Modular": "FullArtModularTemplate",
-		"Pixel Modular": "PixelModularTemplate",
-		"Fullart Textlesss": "FullArtTextlessTemplate"
+		"Fullart Textlesss": "FullArtTextlessTemplate",
+		"Pixel Modular": "PixelModularTemplate"
 	},
 	"ixalan": {
 		"Fullart Modular": "DFCModularTemplate"
