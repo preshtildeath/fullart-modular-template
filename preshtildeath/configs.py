@@ -19,12 +19,16 @@ class preshCFG:
         self.hollow_mana = self.file.getboolean("GENERAL", "Hollow.Mana")
         self.move_art = self.file.getboolean("GENERAL", "Move.Art")
         self.crt_filter = self.file.getboolean("PIXEL", "CRT.Filter")
+        self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
+        self.symbol_bg = self.file.getboolean("PIXEL", "Symbol.BG")
 
     def save(self, c):
         self.file.set("GENERAL", "Side.Pinelines", str(c["side_pins"]))
         self.file.set("GENERAL", "Hollow.Mana", str(c["hollow_mana"]))
         self.file.set("GENERAL", "Move.Art", str(c["move_art"]))
         self.file.set("PIXEL", "CRT.Filter", str(c["crt_filter"]))
+        self.file.set("PIXEL", "Invert.Mana", str(c["invert_mana"]))
+        self.file.set("PIXEL", "Symbol.BG", str(c["symbol_bg"]))
         with open("config.ini", "w", encoding="utf-8") as cfile:
             self.file.write(cfile)
     

@@ -20,11 +20,12 @@ app = ps.Application()
 app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
 
-class FullArtModularTemplate (temp.StarterTemplate):
-    """
-     * Created by preshtildeath
-     * Expands the textbox based on how much oracle text a card has
-    """        
+"""
+    Created by preshtildeath
+    Expands the textbox based on how much oracle text a card has
+    Also expanding this template to service other card types
+"""     
+class FullArtModularTemplate (temp.StarterTemplate):   
     def template_file_name (self):
         return "preshtildeath/fullart-modular"
     
@@ -281,6 +282,8 @@ class FullArtModularTemplate (temp.StarterTemplate):
             app.activeDocument.selection.fill(tools.rgbcolor(0, 0, 0)) # Fill it with black
             app.activeDocument.selection.deselect() # Deselect
 
+# Useful for textless duals.
+# TODO: Tweak layout for creatures so they can get rid of textbox
 class FullArtTextlessTemplate (FullArtModularTemplate):
 
     def __init__ (self, layout):
@@ -345,6 +348,7 @@ class BasicModularTemplate (FullArtModularTemplate):
             tools.set_opacity(layer, 50)
             layer.visible = True
 
+# One-size-fits-all for MDFC Front, MDFC Back, Transform, and Ixalan land back. Lessons too I guess.
 class DFCModularTemplate (FullArtModularTemplate):
 
     def __init__ (self, layout):
@@ -405,7 +409,11 @@ class DFCModularTemplate (FullArtModularTemplate):
         tools.paste_in_place()
         app.activeDocument.selection.deselect()
         dfc_mask.delete()
-
+"""
+    Created by preshtildeath
+    Expandable pixel-art template
+    100dpi start, then can blow up to 800dpi with the CRT filter
+"""
 class PixelModularTemplate (temp.StarterTemplate):
     """
      * Created by preshtildeath
@@ -427,58 +435,85 @@ class PixelModularTemplate (temp.StarterTemplate):
             return suffix
 
     def load_artwork (self):
-        # Set up text layers
+        psd.paste_file(self.art_layer, self.layout.file)
+        tools.zero_transform(self.art_layer, "nearestNeighbor")
+    
+    # Drag in the artwork for real
+    def real_artwork(self):
+
         console.update("Loading artwork...")
-        # Loads the specified art file into the specified layer.
+
+        # Establish size to scale down to and resize
         ref_w = self.art_reference.bounds[2]-self.art_reference.bounds[0]
-        ref_h = self.art_reference.bounds[2]-self.art_reference.bounds[0]
+        ref_h = self.art_reference.bounds[3]-self.art_reference.bounds[1]
         art_doc = app.load(self.layout.file)
         scale = 100 * max(ref_w / art_doc.width, ref_h / art_doc.height)
         if scale < 50:
             tools.img_resize(art_doc, scale)
             app.activeDocument = art_doc
+            # Dither index
             tools.index_color(128)
+
+        # Copy/paste into template doc, then align with art reference
         app.activeDocument.selection.selectAll()
         app.activeDocument.selection.copy()
         art_doc.close(ps.SaveOptions.DoNotSaveChanges)
         app.activeDocument.activeLayer = self.art_layer
         app.activeDocument.paste()
-        app.activeDocument.selection.deselect()
+        psd.select_layer_pixels(self.art_reference)
+        psd.align_horizontal()
+        psd.align_vertical()
+        psd.clear_selection()
         tools.zero_transform(layer=self.art_layer, i="nearestNeighbor")
 
     def collector_info (self): pass
 
     def __init__ (self, layout):
-        app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
-        cfg.remove_flavor = True
+
+        # Setup some parameters
+        app.preferences.interpolation = ps.ResampleMethod.NearestNeighbor
         cfg.remove_reminder = True
+        cfg.remove_flavor = True
+        config.reload()
+        con.reload()
+        self.default_symbols = con.symbols.copy()
         con.font_rules_text = "m5x7"
-        con.font_mana = "Beleren2016"
-        con.rgb_primary = {'r': 217, 'g': 217, 'b': 217}
-        con.rgb_c, con.rgb_w, con.rgb_u, con.rgb_b, con.rgb_r con.rgb_g = [{'r': 0, 'g': 0, 'b': 0}]*6
-        con.rgbi_c = {'r': 217, 'g': 217, 'b': 217}
-        con.rgbi_w = {'r': 255, 'g': 255, 'b': 255}
-        con.rgbi_u = {'r': 128, 'g': 174, 'b': 255}
-        con.rgbi_b = {'r': 170, 'g': 224, 'b': 250}
-        con.rgbi_r = {'r': 255, 'g': 128, 'b': 128}
-        con.rgbi_g = {'r': 128, 'g': 255, 'b': 128}
-        f_txt = list("BWcwubrgLMNOPRSTUV")
-        t_txt = list("IHCWUBRGwubrgwubrg")
-        for s in con.symbols.keys():
-            sym = con.symbols[s]
-            sym = re.sub("[Qqo]", "^", sym)
-            for i in range(len(f_txt)):
-                if f_txt[i] in sym:
-                    sym = sym.replace(f_txt[i], t_txt[i])
-            con.symbols[s] = sym
-        console.update(str(con.symbols))
+        con.font_rules_text_italic = "Silver"
+
+        # If inverted or circle-less, inner symbols are colored and background circle is black
+        if config.invert_mana or not config.symbol_bg:
+            con.rgb_primary = {'r': 217, 'g': 217, 'b': 217}
+            con.rgb_c, con.rgb_w, con.rgb_u, con.rgb_bh, con.rgb_b, con.rgb_r, con.rgb_g = [{'r': 13, 'g': 13, 'b': 13}]*7
+            con.rgbi_c = {'r': 217, 'g': 217, 'b': 217}
+            con.rgbi_w = {'r': 255, 'g': 255, 'b': 255}
+            con.rgbi_u = {'r':  64, 'g': 134, 'b': 255}
+            con.rgbi_bh= {'r': 125, 'g':   0, 'b': 255}
+            con.rgbi_b = {'r': 125, 'g':   0, 'b': 255}
+            con.rgbi_r = {'r': 255, 'g': 128, 'b': 128}
+            con.rgbi_g = {'r': 128, 'g': 255, 'b': 128}
+        else:
+            con.rgb_c = {'r': 217, 'g': 217, 'b': 217}
+            con.rgb_w = {'r': 255, 'g': 255, 'b': 255}
+            con.rgb_u = {'r':  64, 'g': 134, 'b': 255}
+            con.rgb_bh= {'r': 125, 'g':   0, 'b': 255}
+            con.rgb_b = {'r': 125, 'g':   0, 'b': 255}
+            con.rgb_r = {'r': 255, 'g': 128, 'b': 128}
+            con.rgb_g = {'r': 128, 'g': 255, 'b': 128}
+
+        # Replace Q, q, and o with ^ for later deletion
+        if not config.symbol_bg:
+            for s in con.symbols.keys():
+                con.symbols[s] = re.sub("[Qqo]", "^", con.symbols[s])
+        
         super().__init__(layout)
+
         self.text_layers()
 
     def text_layers(self):
-        # Set up text layers
+
         console.update("Preparing text layers...")
-        
+
+        # Set up text layers
         name_layer = psd.getLayer('Name', 'Text')
         type_layer = psd.getLayer('Typeline', 'Text')
         mana_layer = psd.getLayer('Mana', 'Text')
@@ -547,6 +582,8 @@ class PixelModularTemplate (temp.StarterTemplate):
         app.activeDocument.selection.fill(tools.rgbcolor(0,0,0))
 
     def enable_frame_layers (self):
+        # Put the real artwork in lol
+        self.real_artwork()
         # Eldrazi formatting?
         if self.layout.is_colorless:
             # Devoid formatting?
@@ -569,14 +606,28 @@ class PixelModularTemplate (temp.StarterTemplate):
             tools.wubrg_layer_sort(self.layout.pinlines, 'Pinlines')
             tools.wubrg_layer_sort(self.layout.pinlines, 'Textbox')
 
+        if self.is_land:
+            land_textbox = psd.getLayer("Land", "Textbox")
+            if not land_textbox.visible: land_textbox.fillOpacity = 50
+            land_textbox.visible = True
+
     def post_text_layers(self):
         # Set up text layers
         console.update("Post text layers...")
 
-        mana_layer = psd.getLayer('Mana', 'Text')
-        mana_layer.textItem.antiAliasMethod = ps.AntiAlias.NoAntialias
-        
+        # Establish some the layers
+        name_layer = psd.getLayer('Name', 'Text')
         type_layer = psd.getLayer('Typeline', 'Text')
+        mana_layer = psd.getLayer('Mana', 'Text')
+        body_layer = psd.getLayer('Oracle', 'Text')
+
+        # Fix any anti-aliasing and kerning weirdness
+        text_layers = [name_layer, type_layer, mana_layer, body_layer]
+        for layer in text_layers:
+            layer.textItem.antiAliasMethod = ps.AntiAlias.NoAntialias
+            layer.textItem.autoKerning = ps.AutoKernType.Metrics
+        
+        # Attempt to fix type line if it goes spilling off the side
         if type_layer.bounds[2] > 233:
             if "Legendary" in self.layout.type_line:
                 if "Creature" in self.layout.type_line:
@@ -586,17 +637,10 @@ class PixelModularTemplate (temp.StarterTemplate):
             elif "Creature" in self.layout.type_line:
                 psd.replace_text(type_layer, "Creature ", "")
 
-        swap = [ "^H", "^A", "^I", "^C", "^D", "^E", "^F", "^G", "^K" ]
-        to = [ "2", "10", "11", "12", "13", "14", "15", "16", "20" ]
-        formatted_layers = [mana_layer, psd.getLayer('Oracle', 'Text')]
-        for layer in formatted_layers:
-            console.update(f"Replacing text in {layer.name}")
-            text_item = layer.textItem.contents
-            for i in range(len(swap)):
-                if swap[i] in text_item:
-                    console.update(f"Replacing {swap[i]} with {to[i]}")
-                    psd.replace_text(layer, swap[i], to[i])
-        psd.replace_text(app.activeDocument.activeLayer, "^", "")
+        # Get rid of the "^" symbols if the symbol_bg is False in our config
+        if not config.symbol_bg:
+            psd.replace_text(mana_layer, "^", "")
+            psd.replace_text(body_layer, "^", "")
         mana_layer.textItem.font = con.font_mana
         time.sleep(0.2)
         mana_layer.textItem.font = con.font_mana
@@ -605,3 +649,7 @@ class PixelModularTemplate (temp.StarterTemplate):
             app.activeDocument.activeLayer = self.art_layer
             console.wait("CRT Filter enabled, make any adjustments then hit continue.")
             tools.crt_filter()
+
+    def post_execute(self):
+        con.symbols = self.default_symbols
+        return super().post_execute()

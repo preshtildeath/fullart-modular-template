@@ -156,8 +156,9 @@ cython_debug/
 .gitattributes
 
 ignore
+FelixVita
+Magrim
 MrTeferi
 SilvanMTG
-Magrim
 proxyshop
 photoshop

@@ -345,12 +345,12 @@ def get_layer_index(layerID):
     except: return app.executeActionGet(ref).getInteger(chaID("ItmI"))
 
 def move_inside(fromlayer, layerset):
-    fromID = fromlayer.id
-    toID = layerset.id
+    fromID = int(fromlayer.id)
+    toID = int(layerset.id)
     desc = ps.ActionDescriptor()
     ref1 = ps.ActionReference()
     ref2 = ps.ActionReference()
-    ref1.putIdentifier(chaID("Lyr "), int(fromID))
+    ref1.putIdentifier(chaID("Lyr "), fromID)
     desc.putReference(chaID("null"), ref1)
     ref2.putIndex(chaID("Lyr "), get_layer_index(toID))
     desc.putReference(chaID("T   "), ref2)
@@ -605,9 +605,9 @@ def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
        "nearestNeighbor": chaID("Nrst")
         }
     old_tool = app.currentTool
-    old_layer = app.activeDocument.activeLayer
-
     app.currentTool = "moveTool"
+
+    old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
 
     desc1 = ps.ActionDescriptor()
