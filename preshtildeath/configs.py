@@ -1,9 +1,7 @@
 from proxyshop.settings import Config
 import os.path as path
 
-cfg_path = path.join(path.dirname(__file__), "config.ini")
-
-class cfg (Config):    
+class MyConfig (Config):    
     def load(self):
         self.move_art = self.file.getboolean("GENERAL", "Move.Art")
         self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
@@ -22,4 +20,5 @@ class cfg (Config):
         with open("config.ini", "w", encoding="utf-8") as ini:
             self.file.write(ini)
 
-presh_config = cfg(cfg_path)
+cfg_path = path.join(path.dirname(__file__), "config.ini")
+presh_config = MyConfig(cfg_path)

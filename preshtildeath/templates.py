@@ -25,7 +25,6 @@ app.preferences.typeUnits = ps.Units.Points
 """
     Functions live here that each template wants to use
 
-<<<<<<< HEAD
 """
 
 
@@ -53,14 +52,6 @@ def move_art(layout):
             os.replace(layout.file, tools.filename_append(new_file, fin_path))
     except Exception as e:
         console.update("Could not move art file!", exception=e)
-=======
-    fin_path = os.path.join(work_path, 'finished')
-    if not os.path.exists(fin_path): os.mkdir(fin_path)
-
-    new_file = os.path.join(fin_path, f"{new_name}{ext}")
-    try: os.replace(file, tools.filename_append(new_file, fin_path))
-    except Exception as e: console.update("Could not move art file!", exception=e)
->>>>>>> parent of e595e78 (Bug fix)
 
 
 """
@@ -541,12 +532,7 @@ class PixelModularTemplate(temp.StarterTemplate):
             crt_tools.img_resize(art_doc, scale)
             app.activeDocument = art_doc
             # Dither index
-<<<<<<< HEAD
             crt_tools.index_color(16, "adaptive")
-=======
-            crt_tools.index_color(128)
-
->>>>>>> parent of e595e78 (Bug fix)
         # Copy/paste into template doc, then align with art reference
         app.activeDocument.selection.selectAll()
         app.activeDocument.selection.copy()
@@ -743,16 +729,8 @@ class PixelModularTemplate(temp.StarterTemplate):
         time.sleep(0.2)
         mana_layer.textItem.font = con.font_mana
 
-<<<<<<< HEAD
         # Blow up to 800dpi, and do the CRT filter if presh_config says to
         crt_tools.blow_up(presh_config.crt_filter)
-=======
-        # Do our big bad CRT filter treatment
-        if config.crt_filter:
-            app.activeDocument.activeLayer = self.art_layer
-            console.wait("CRT Filter enabled, make any adjustments then hit continue.")
-            crt_tools.crt_filter()
->>>>>>> parent of e595e78 (Bug fix)
 
     def post_execute(self):
         con.reload()
