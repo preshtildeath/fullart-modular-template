@@ -1,20 +1,10 @@
-import os
-import configparser
-self_dir = os.path.dirname(__file__)
-def_path = os.path.join(self_dir, "config.ini")
+from proxyshop.settings import Config
+import os.path as path
 
-class preshCFG:
-    def __init__(self, path=def_path):
-        self.side_pins = None
-        self.load(path)
-    
-    def load(self, path):
-        self.file = configparser.ConfigParser(
-            comment_prefixes="/", allow_no_value=True
-            )
-        self.file.optionxform = str
-        self.file.read(path, encoding="utf-8")
+cfg_path = path.join(path.dirname(__file__), "config.ini")
 
+class cfg (Config):    
+    def load(self):
         self.move_art = self.file.getboolean("GENERAL", "Move.Art")
         self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
         self.hollow_mana = self.file.getboolean("FULLART", "Hollow.Mana")
@@ -22,18 +12,14 @@ class preshCFG:
         self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
         self.symbol_bg = self.file.getboolean("PIXEL", "Symbol.BG")
 
-    def save(self, c):
-        self.file.set("GENERAL", "Move.Art", str(c["move_art"]))
-        self.file.set("FULLART", "Side.Pinelines", str(c["side_pins"]))
-        self.file.set("FULLART", "Hollow.Mana", str(c["hollow_mana"]))
-        self.file.set("PIXEL", "CRT.Filter", str(c["crt_filter"]))
-        self.file.set("PIXEL", "Invert.Mana", str(c["invert_mana"]))
-        self.file.set("PIXEL", "Symbol.BG", str(c["symbol_bg"]))
-        with open("config.ini", "w", encoding="utf-8") as cfile:
-            self.file.write(cfile)
-    
-    def reload(self, path=def_path):
-        del self.file
-        self.load(path)
+    def update(self):
+        self.file.set("GENERAL", "Move.Art", str(self.move_art))
+        self.file.set("FULLART", "Side.Pinelines", str(self.side_pins))
+        self.file.set("FULLART", "Hollow.Mana", str(self.hollow_mana))
+        self.file.set("PIXEL", "CRT.Filter", str(self.crt_filter))
+        self.file.set("PIXEL", "Invert.Mana", str(self.invert_mana))
+        self.file.set("PIXEL", "Symbol.BG", str(self.symbol_bg))
+        with open("config.ini", "w", encoding="utf-8") as ini:
+            self.file.write(ini)
 
-config = preshCFG()
+presh_config = cfg(cfg_path)
