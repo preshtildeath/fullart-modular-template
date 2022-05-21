@@ -3,7 +3,6 @@ PRESHTILDEATH TEMPLATES
 """
 import os
 import re
-import time
 import tools
 import crt_tools
 import proxyshop.text_layers as txt_layers
@@ -23,38 +22,58 @@ app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
 
 
-"""
-Functions and Classes live here that multiple templates want to use
-"""
-class ModTextaArea (txt_layers.FormattedTextArea):
-
-    def __init__(self, layer, contents, text_color, flavor_text, ref_lyr, is_centered=False):
-        super().__init__(layer, contents, text_color, flavor_text, ref_lyr, is_centered, False)
-
-    def execute(self):
-        super().execute()
-        self.layer.translate(0, -10)
-
-
-class CreatureModTextaArea (txt_layers.CreatureFormattedTextArea):
-
-    def __init__(self, layer, contents, text_color, flavor_text, ref_lyr, pt_ref_lyr, pt_top_ref_lyr, is_centered=False):
-        super().__init__(layer, contents, text_color, flavor_text, ref_lyr, pt_ref_lyr, pt_top_ref_lyr, is_centered, False)
+class ModTextaArea(txt_layers.FormattedTextArea):
+    # Just here to fix the vertical offset
+    def __init__(
+        self, layer, contents, text_color, flavor_text, ref_lyr, is_centered=False
+    ):
+        super().__init__(
+            layer, contents, text_color, flavor_text, ref_lyr, is_centered, False
+        )
 
     def execute(self):
         super().execute()
         self.layer.translate(0, -10)
 
 
-# For templates like PW, Leveler, Saga, and Class
-class PWLoyaltyCost (txt_layers.TextField):
+class CreatureModTextaArea(txt_layers.CreatureFormattedTextArea):
+    # Just here to fix the vertical offset
+    def __init__(
+        self,
+        layer,
+        contents,
+        text_color,
+        flavor_text,
+        ref_lyr,
+        pt_ref_lyr,
+        pt_top_ref_lyr,
+        is_centered=False,
+    ):
+        super().__init__(
+            layer,
+            contents,
+            text_color,
+            flavor_text,
+            ref_lyr,
+            pt_ref_lyr,
+            pt_top_ref_lyr,
+            is_centered,
+            False,
+        )
 
-    def __init__ (self, layer, text_contents, text_color, badge):
+    def execute(self):
+        super().execute()
+        self.layer.translate(0, -10)
+
+
+class PWLoyaltyCost(txt_layers.TextField):
+    # Shrink loyalty ability costs to fit inside the badge
+    def __init__(self, layer, text_contents, text_color, badge):
 
         super().__init__(layer, text_contents, text_color)
         self.badge = badge
 
-    def execute (self):
+    def execute(self):
 
         super().execute()
         doc = app.activeDocument
@@ -73,19 +92,18 @@ class PWLoyaltyCost (txt_layers.TextField):
         badge_scale(self.layer, self.badge, expand=True)
 
 
-class FormattedTextBottom (ModTextaArea):
-
-    def __init__(self, layer, content, color, flavor, ref_lyr, badge, is_centered=False):
+class FormattedTextBottom(ModTextaArea):
+    # Fix any overlap with the starting loyalty box
+    def __init__(
+        self, layer, content, color, flavor, ref_lyr, badge, is_centered=False
+    ):
         super().__init__(layer, content, color, flavor, ref_lyr, is_centered, False)
         self.badge = badge
 
     def execute(self):
         super().execute()
+        self.layer.translate(0, -10)
         badge_scale(self.layer, self.badge, expand=True, invert=True)
-
-        # psd.select_layer_pixels(self.reference_layer)
-        # app.activeDocument.activeLayer = self.layer
-        # psd.align_vertical()
 
 
 def badge_scale(layer, badge, expand=False, invert=False):
@@ -95,9 +113,11 @@ def badge_scale(layer, badge, expand=False, invert=False):
 
     while True:
 
-        layer_copy = layer.duplicate(app.activeDocument, ps.ElementPlacement.PlaceInside)
+        layer_copy = layer.duplicate(
+            app.activeDocument, ps.ElementPlacement.PlaceInside
+        )
         layer_copy.rasterize(ps.RasterizeType.TextContents)
-        tools.magic_wand_select(badge, 10, 10)
+        tools.select_blank_pixels(badge)
         if invert:
             doc.selection.invert()
         if expand:
@@ -117,7 +137,7 @@ def badge_scale(layer, badge, expand=False, invert=False):
             textitem.baselineShift += 0.3
         elif "Zero" in badge.name:
             textitem.baselineShift += 0.15
-    
+
 
 def move_art(layout):
     console.update("Moving art file...")
@@ -156,7 +176,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
     def template_file_name(self):
         return "preshtildeath/fullart-modular"
 
-    def template_suffix (self):
+    def template_suffix(self):
 
         try:
             if cfg.save_jpeg:
@@ -165,15 +185,11 @@ class FullArtModularTemplate(temp.StarterTemplate):
                 test_file = f"{self.layout.name} ({self.suffix}).png"
 
             # Check for multiples
-            end_file = tools.filename_append(
-                test_file, os.path.join(con.cwd, "out")
-            )
+            end_file = tools.filename_append(test_file, os.path.join(con.cwd, "out"))
 
             # Cut to basename, then strip extension, then isolate suffix
-            end_file = os.path.splitext(os.path.basename(end_file))[0]  
-            end_file = end_file[
-                end_file.find("(") + 1 : end_file.rfind(")")
-            ]
+            end_file = os.path.splitext(os.path.basename(end_file))[0]
+            end_file = end_file[end_file.find("(") + 1 : end_file.rfind(")")]
             return end_file  # "Base suffix) (x"
         except:
             return self.suffix
@@ -184,7 +200,8 @@ class FullArtModularTemplate(temp.StarterTemplate):
         psd.paste_file(self.art_layer, self.layout.file)
         tools.zero_transform(self.art_layer)
 
-    def collector_info(self): pass
+    def collector_info(self):
+        pass
 
     def __init__(self, layout):
 
@@ -194,7 +211,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
         cfg.remove_reminder = True
 
         super().__init__(layout)
-        
+
         filename = os.path.splitext(os.path.basename(layout.file))[0]
         if filename.rfind("[") < filename.rfind("]"):
             self.set = filename[filename.rfind("[") + 1 : filename.rfind("]")].upper()
@@ -213,12 +230,12 @@ class FullArtModularTemplate(temp.StarterTemplate):
             # con.rgb_g = {"r": 0, "g": 134, "b": 80}
             con.rgbi_c = {"r": 194, "g": 194, "b": 194}
             con.rgbi_w = {"r": 232, "g": 232, "b": 230}
-            con.rgbi_u = {"r":  64, "g": 185, "b": 255}
-            con.rgbi_b = {"r": 147, "g":  31, "b": 153}
-            con.rgbi_bh ={"r": 147, "g":  31, "b": 153}
+            con.rgbi_u = {"r": 64, "g": 185, "b": 255}
+            con.rgbi_b = {"r": 147, "g": 31, "b": 153}
+            con.rgbi_bh = {"r": 147, "g": 31, "b": 153}
             con.rgbi_r = {"r": 255, "g": 140, "b": 128}
-            con.rgbi_g = {"r":  22, "g": 217, "b": 139}
-            for c in [("rgb_"+s) for s in (list("wubrgc")+["bh", "primary"])]:
+            con.rgbi_g = {"r": 22, "g": 217, "b": 139}
+            for c in [("rgb_" + s) for s in (list("wubrgc") + ["bh", "primary"])]:
                 setattr(con, c, {"r": 250, "g": 250, "b": 250})
             for sym in con.symbols:
                 con.symbols[sym] = re.sub("[Qqo]", "v", con.symbols[sym])
@@ -282,9 +299,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
 
         # Set symbol
         set_pdf = tools.get_set_pdf(self.set)
-        exp_layer = tools.get_expansion(
-            exp_layer, self.layout.rarity, exp_ref, set_pdf
-        )
+        exp_layer = tools.get_expansion(exp_layer, self.layout.rarity, exp_ref, set_pdf)
 
         # Mana, Name, and Type text
         self.tx_layers.extend(
@@ -334,8 +349,8 @@ class FullArtModularTemplate(temp.StarterTemplate):
                         ref_lyr=self.textbox_ref,
                         pt_ref_lyr=tools.get_layer("PT Adjustment", "Ref"),
                         pt_top_ref_lyrr=tools.get_layer("PT Top", "Ref"),
-                        is_centered=is_centered
-                    )
+                        is_centered=is_centered,
+                    ),
                 ]
             )
 
@@ -355,7 +370,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
                     text_color=psd.get_text_layer_color(rules_text),
                     flavor_text=self.layout.flavor_text,
                     ref_lyr=self.textbox_ref,
-                    is_centered=is_centered
+                    is_centered=is_centered,
                 )
             ]
 
@@ -390,7 +405,9 @@ class FullArtModularTemplate(temp.StarterTemplate):
         else:
             tools.wubrg_layer_sort(self.layout.pinlines, "Pinlines")
             tools.wubrg_layer_sort(self.layout.pinlines, "Textbox")
-        tools.get_layer("Side Pinlines", "Masked", "Pinlines").visible = presh_config.side_pins
+        tools.get_layer(
+            "Side Pinlines", "Masked", "Pinlines"
+        ).visible = presh_config.side_pins
 
         # legendary crown
         if self.is_legendary:
@@ -411,7 +428,9 @@ class FullArtModularTemplate(temp.StarterTemplate):
             if not land_textbox.visible:
                 land_textbox.fillOpacity = 50
                 land_textbox.visible = True
-            app.activeDocument.activeLayer = tools.get_layer("Normal", "Mask Wearer", "Border")
+            app.activeDocument.activeLayer = tools.get_layer(
+                "Normal", "Mask Wearer", "Border"
+            )
             psd.enable_active_layer_mask()
             if len(self.layout.pinlines) != 2:
                 tools.get_layer(self.layout.pinlines, "Border").visible = True
@@ -453,7 +472,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
             move_art(self.layout)
 
 
-class FullArtTextlessTemplate (FullArtModularTemplate):
+class FullArtTextlessTemplate(FullArtModularTemplate):
     # Useful for textless duals.
     # TODO: Tweak layout for creatures so they can get rid of textbox
 
@@ -462,8 +481,7 @@ class FullArtTextlessTemplate (FullArtModularTemplate):
         super().__init__(layout)
 
 
-class BasicModularTemplate (FullArtModularTemplate):
-
+class BasicModularTemplate(FullArtModularTemplate):
     def __init__(self, layout):
 
         self.suffix = f"{self.layout.artist}) ({self.set}"  # Base suffix
@@ -475,7 +493,7 @@ class BasicModularTemplate (FullArtModularTemplate):
             "Mountain": "R",
             "Forest": "G",
         }
-        
+
         super().__init__(layout)
 
     def text_layers(self):
@@ -525,8 +543,11 @@ class BasicModularTemplate (FullArtModularTemplate):
 
 
 class DFCModularTemplate(FullArtModularTemplate):
-    # One-size-fits-all for MDFC Front, MDFC Back, Transform, and Ixalan land back. Lessons too, I guess.
-    def transform (self):
+    """
+    One-size-fits-all for MDFC Front, MDFC Back, Transform, and Ixalan land back.
+    Lessons too, I guess?
+    """
+    def transform(self):
 
         trans_icon = {
             "sunmoondfc": ["", ""],
@@ -557,7 +578,9 @@ class DFCModularTemplate(FullArtModularTemplate):
 
         # Setup transform icon
         dfc_icon = tools.get_layer(dfc, "Text and Icons")
-        dfc_icon.textItem.contents = trans_icon[self.layout.transform_icon][self.layout.face]
+        dfc_icon.textItem.contents = trans_icon[self.layout.transform_icon][
+            self.layout.face
+        ]
         dfc_icon.visible = True
 
         # Cut out the icon from the legendary frame if necessary
@@ -581,8 +604,7 @@ class DFCModularTemplate(FullArtModularTemplate):
         self.transform()
 
 
-class PWFullArtModularTemplate (FullArtModularTemplate):
-    
+class PWFullArtModularTemplate(FullArtModularTemplate):
     def __init__(self, layout):
 
         self.is_planeswalker = True
@@ -597,45 +619,37 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
         reference = tools.get_layer("Textbox", "Ref")
         left, right = reference.bounds[0], reference.bounds[2]
         ref_h = psd.compute_layer_dimensions(reference)["height"]
-        b, w = [0]*3, [255]*3
+        b, w = [0] * 3, [255] * 3
         black, white = tools.rgbcolor(*b), tools.rgbcolor(*w)
         oracle_array = self.layout.oracle_text.split("\n")
         # oracle_len = len(self.layout.oracle_text)
         overlay = tools.get_layer("Overlay", "Textbox").duplicate()
-        centered = False 
+        centered = False
 
         """
         Testing pre-establishing text size
         """
-        try:
+        text_layer = tools.get_layer(
+            "Static", "PW Ability", "Text and Icons"
+        ).duplicate()
+        text_layer.visible = True
 
-            text_layer = tools.get_layer("Static", "PW Ability", "Text and Icons").duplicate()
-            text_layer.visible = True
+        temp_text = self.layout.oracle_text.replace("\n", "\r")
+        temp_text = re.sub("\{.*?\}", "X", temp_text)
+        text_layer.textItem.contents = temp_text
 
-            temp_text = self.layout.oracle_text.replace("\n", "\r")
-            temp_text = re.sub('\{.*?\}', 'X', temp_text)
-            text_layer.textItem.contents = temp_text
-            
-            text_heights = []
+        txt_layers.scale_text_to_fit_reference(text_layer, reference)
 
-            txt_layers.scale_text_to_fit_reference(text_layer, reference)
-            
-            for i, line in enumerate(temp_text.split("\r")):
-                text_layer.textItem.contents = line
-                tools.magic_wand_select(text_layer, 0, 0)
-                doc.selection.invert()
-                bounds = doc.selection.bounds
-                height = bounds[3] - bounds[1]
-                text_heights += [height]
-            text_layer.textItem.contents = ""
-            text_layer.remove()
+        text_heights = []
+        for line in temp_text.split("\r"):
+            text_layer.textItem.contents = line
+            height = tools.text_layer_bounds(text_layer)[1]
+            text_heights += [height + 40]
+        text_layer.textItem.contents = ""
+        text_layer.remove()
 
-            text_heights = list(map(lambda x: x + 40, text_heights))
-            text_h = sum(text_heights)
-            text_size = text_layer.textItem.size
-
-        except:
-            print("Nope")
+        text_h = sum(text_heights)
+        text_size = text_layer.textItem.size
 
         for i, ability in enumerate(oracle_array):
 
@@ -652,12 +666,9 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
                 bottom = reference.bounds[3]
             else:
                 bottom = top + overlay_height
-            doc.selection.select([
-                [left, top],
-                [right, top],
-                [right, bottom],
-                [left, bottom]
-            ])
+            doc.selection.select(
+                [[left, top], [right, top], [right, bottom], [left, bottom]]
+            )
             if i % 2 == 0:
                 doc.selection.fill(black)
             else:
@@ -695,20 +706,24 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
                         layer=cost,
                         text_contents=str(cost_text),
                         text_color=white,
-                        badge=badge
+                        badge=badge,
                     )
                 ]
 
                 # Fix ability text
                 centered = False
-                ability_text = ability[colon_index+2:]
-                ability_layer = tools.get_layer("Activated", "PW Ability", "Text and Icons").duplicate()
+                ability_text = ability[colon_index + 2 :]
+                ability_layer = tools.get_layer(
+                    "Activated", "PW Ability", "Text and Icons"
+                ).duplicate()
 
             else:
                 # Fix ability text
                 centered = True
                 ability_text = ability
-                ability_layer = tools.get_layer("Static", "PW Ability", "Text and Icons").duplicate()
+                ability_layer = tools.get_layer(
+                    "Static", "PW Ability", "Text and Icons"
+                ).duplicate()
 
             ability_layer.translate(0, top + 20 - ability_layer.bounds[1])
             ability_layer.textItem.size = text_size
@@ -719,9 +734,9 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
                 tools.magic_wand_select(divider, 0, 0)
                 doc.selection.invert()
                 bounds = doc.selection.bounds
-                divider.translate(0, top-2-bounds[1])
+                divider.translate(0, top - 2 - bounds[1])
                 doc.selection.deselect()
-            
+
             overlayer = overlayer.duplicate(reference, ps.ElementPlacement.PlaceAfter)
             if i < len(oracle_array):
                 self.tx_layers += [
@@ -731,7 +746,7 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
                         text_color=white,
                         flavor_text=self.layout.flavor_text,
                         ref_lyr=overlayer,
-                        is_centered=centered
+                        is_centered=centered,
                     )
                 ]
             else:
@@ -743,21 +758,21 @@ class PWFullArtModularTemplate (FullArtModularTemplate):
                         flavor_text=self.layout.flavor_text,
                         ref_lyr=overlayer,
                         badge=tools.get_layer("Badge", "PW"),
-                        is_centered=centered
+                        is_centered=centered,
                     )
                 ]
-        
+
         tools.get_layer("Badge", "PW").visible = True
         self.tx_layers += [
             txt_layers.TextField(
                 layer=tools.get_layer("Power / Toughness", "Text and Icons"),
                 text_contents=self.layout.loyalty,
-                text_color=white
+                text_color=white,
             )
         ]
 
 
-class PWTransformFullArtTemplate (PWFullArtModularTemplate):
+class PWTransformFullArtTemplate(PWFullArtModularTemplate):
 
     def text_layers(self):
 
@@ -767,7 +782,6 @@ class PWTransformFullArtTemplate (PWFullArtModularTemplate):
 
 class PixelModularTemplate(temp.StarterTemplate):
     """
-    Created by preshtildeath
     Expandable pixel-art template
     100dpi start, then can blow up to 800dpi with the CRT filter
     """
@@ -835,7 +849,7 @@ class PixelModularTemplate(temp.StarterTemplate):
 
         # If inverted or circle-less, inner symbols are colored and background circle is black
         if presh_config.invert_mana or not presh_config.symbol_bg:
-            for c in [("rgb_"+s) for s in (list("wubrgc")+["bh"])]:
+            for c in [("rgb_" + s) for s in (list("wubrgc") + ["bh"])]:
                 setattr(con, c, {"r": 13, "g": 13, "b": 13})
             con.rgb_primary = {"r": 217, "g": 217, "b": 217}
             con.rgbi_c = {"r": 217, "g": 217, "b": 217}
@@ -981,6 +995,7 @@ class PixelModularTemplate(temp.StarterTemplate):
         for layer in text_layers:
             layer.textItem.antiAliasMethod = ps.AntiAlias.NoAntialias
             layer.textItem.autoKerning = ps.AutoKernType.Metrics
+
         # Attempt to fix type line if it goes spilling off the side
         if type_layer.bounds[2] > 233:
             if "Legendary" in self.layout.type_line:
@@ -990,12 +1005,10 @@ class PixelModularTemplate(temp.StarterTemplate):
                     psd.replace_text(type_layer, "Legendary ", "")
             elif "Creature" in self.layout.type_line:
                 psd.replace_text(type_layer, "Creature ", "")
+
         # Get rid of the "^" symbols if the symbol_bg is False in our presh_config
         if not presh_config.symbol_bg:
             psd.replace_text(mana_layer, "^", "")
-            psd.replace_text(body_layer, "^", "")
-        mana_layer.textItem.font = con.font_mana
-        time.sleep(0.2)
         mana_layer.textItem.font = con.font_mana
 
         # Blow up to 800dpi, and do the CRT filter if presh_config says to

@@ -1,41 +1,47 @@
 import photoshop.api as ps
 import os
+
 app = ps.Application()
 
 # define these because otherwise they take up so many characters
-def chaID(char): return app.charIDToTypeID(char)
+def cid(char):
+    return app.charIDToTypeID(char)
 
-def strID(string): return app.stringIDToTypeID(string)
+
+def sid(string):
+    return app.stringIDToTypeID(string)
+
 
 def default_colors():
     fore_back_color_init("reset")
 
+
 def color_exchange():
     fore_back_color_init("exchange")
 
+
 def fore_back_color_init(method):
-    action = {"reset": chaID("Rset"), "exchange": chaID("Exch")}
+    action = {"reset": cid("Rset"), "exchange": cid("Exch")}
     desc = ps.ActionDescriptor()
     ref = ps.ActionReference()
-    ref.putProperty(chaID("Clr "), chaID("Clrs"))
-    desc.putReference(chaID("null"), ref)
+    ref.putProperty(cid("Clr "), cid("Clrs"))
+    desc.putReference(cid("null"), ref)
     app.executeAction(action[method], desc, 3)
+
 
 # Index color palette for active document
 def index_color(colors=24, m="uniform"):
-    method = {
-        "adaptive": chaID("Adpt"),
-        "uniform": chaID("Unfm")
-    }
+    method = {"adaptive": cid("Adpt"), "uniform": cid("Unfm")}
     dsc1 = ps.ActionDescriptor()
     dsc2 = ps.ActionDescriptor()
-    dsc2.putEnumerated(chaID("Plt "), chaID("ClrP"), method[m])
-    dsc2.putInteger(chaID("Clrs"), colors)
-    dsc2.putEnumerated(chaID("FrcC"), chaID("FrcC"), chaID("None"))
-    dsc2.putBoolean(chaID("Trns"), False)
-    dsc2.putEnumerated(chaID("Dthr"), chaID("Dthr"), chaID("Ptrn"))
-    dsc1.putObject(chaID("T   "), chaID("IndC"), dsc2)
-    app.executeAction(chaID("CnvM"), dsc1, 3)
+    dsc2.putEnumerated(cid("Plt "), cid("ClrP"), method[m])
+    dsc2.putInteger(cid("Clrs"), colors)
+    dsc2.putEnumerated(cid("FrcC"), cid("FrcC"), cid("None"))
+    dsc2.putBoolean(cid("Trns"), False)
+    dsc2.putEnumerated(cid("Dthr"), cid("Dthr"), cid("Ptrn"))
+    dsc1.putObject(cid("T   "), cid("IndC"), dsc2)
+    app.executeAction(cid("CnvM"), dsc1, 3)
+
 
 def pattern_make(file):
     name = os.path.splitext(os.path.basename(file))[0]
@@ -43,14 +49,15 @@ def pattern_make(file):
     desc1 = ps.ActionDescriptor()
     ref1 = ps.ActionReference()
     ref2 = ps.ActionReference()
-    ref1.putClass(chaID("Ptrn"))
-    desc1.putReference(chaID("null"), ref1)
-    ref2.putProperty(chaID("Prpr"), chaID("fsel"))
-    ref2.putEnumerated(chaID("Dcmn"), chaID("Ordn"), chaID("Trgt"))
-    desc1.putReference(chaID("Usng"), ref2)
-    desc1.putString(chaID("Nm  "), name)
-    app.executeAction(chaID("Mk  "), desc1, 3)
+    ref1.putClass(cid("Ptrn"))
+    desc1.putReference(cid("null"), ref1)
+    ref2.putProperty(cid("Prpr"), cid("fsel"))
+    ref2.putEnumerated(cid("Dcmn"), cid("Ordn"), cid("Trgt"))
+    desc1.putReference(cid("Usng"), ref2)
+    desc1.putString(cid("Nm  "), name)
+    app.executeAction(cid("Mk  "), desc1, 3)
     doc.close(ps.SaveOptions.DoNotSaveChanges)
+
 
 def pattern_fill(layer, file, x=0, y=0):
     name = os.path.splitext(os.path.basename(file))[0]
@@ -59,33 +66,38 @@ def pattern_fill(layer, file, x=0, y=0):
     app.currentTool = "bucketTool"
     desc1 = ps.ActionDescriptor()
     desc2 = ps.ActionDescriptor()
-    desc2.putUnitDouble(chaID("Hrzn"), chaID("#Pxl"), x)
-    desc2.putUnitDouble(chaID("Vrtc"), chaID("#Pxl"), y)
-    desc1.putObject(chaID("From"), chaID("Pnt "), desc2)
-    desc1.putInteger(chaID("Tlrn"), 0)
-    desc1.putEnumerated(chaID("Usng"), chaID("FlCn"), chaID("Ptrn"))
+    desc2.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
+    desc2.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
+    desc1.putObject(cid("From"), cid("Pnt "), desc2)
+    desc1.putInteger(cid("Tlrn"), 0)
+    desc1.putEnumerated(cid("Usng"), cid("FlCn"), cid("Ptrn"))
     desc3 = ps.ActionDescriptor()
-    desc3.putString(chaID("Nm  "), name)
-    desc1.putObject(chaID("Ptrn"), chaID("Ptrn"), desc3)
-    desc1.putBoolean(chaID("Cntg"), False)
+    desc3.putString(cid("Nm  "), name)
+    desc1.putObject(cid("Ptrn"), cid("Ptrn"), desc3)
+    desc1.putBoolean(cid("Cntg"), False)
     while True:
-        try: app.executeAction(chaID("Fl  "), desc1, 3)
-        except: pattern_make(file)
-        else: break
+        try:
+            app.executeAction(cid("Fl  "), desc1, 3)
+        except:
+            pattern_make(file)
+        else:
+            break
     app.activeDocument.activeLayer = old_layer
+
 
 def channel_select(chan="all"):
     chan_dict = {
-        "red": chaID("Rd  "),
-        "green": chaID("Grn "),
-        "blue": chaID("Bl  "),
-        "all": chaID("RGB ")
+        "red": cid("Rd  "),
+        "green": cid("Grn "),
+        "blue": cid("Bl  "),
+        "all": cid("RGB "),
     }
     desc = ps.ActionDescriptor()
     ref = ps.ActionReference()
-    ref.putEnumerated(chaID("Chnl"), chaID("Chnl"), chan_dict[chan])
-    desc.putReference(chaID("null"), ref)
-    app.executeAction(chaID("slct"), desc, 3)
+    ref.putEnumerated(cid("Chnl"), cid("Chnl"), chan_dict[chan])
+    desc.putReference(cid("null"), ref)
+    app.executeAction(cid("slct"), desc, 3)
+
 
 def chroma_shift(layer, delta):
     old_layer = app.activeDocument.activeLayer
@@ -103,45 +115,55 @@ def chroma_shift(layer, delta):
     channel_select()
     app.activeDocument.activeLayer = old_layer
 
+
 def lens_blur(layer, radius, bright=0, threshold=255, noise_amount=0, mono=False):
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     desc = ps.ActionDescriptor()
-    desc.putEnumerated(chaID("BkDi"), chaID("BtDi"), chaID("BeIn"))
-    desc.putInteger(chaID("BkDp"), 0)
-    desc.putBoolean(chaID("BkDs"), False)
-    desc.putEnumerated(chaID("BkIs"), chaID("BtIs"), chaID("BeS6")) # Hex default
-    desc.putDouble(chaID("BkIb"), radius)
-    desc.putInteger(chaID("BkIc"), 0)
-    desc.putInteger(chaID("BkIr"), 0)
-    desc.putDouble(chaID("BkSb"), bright)
-    desc.putInteger(chaID("BkSt"), threshold)
-    desc.putInteger(chaID("BkNa"), noise_amount)
-    desc.putEnumerated(chaID("BkNt"), chaID("BtNt"), chaID("BeNg"))
-    desc.putBoolean(chaID("BkNm"), mono)
-    app.executeAction(chaID("Bokh"), desc, 3)
+    desc.putEnumerated(cid("BkDi"), cid("BtDi"), cid("BeIn"))
+    desc.putInteger(cid("BkDp"), 0)
+    desc.putBoolean(cid("BkDs"), False)
+    desc.putEnumerated(cid("BkIs"), cid("BtIs"), cid("BeS6"))  # Hex default
+    desc.putDouble(cid("BkIb"), radius)
+    desc.putInteger(cid("BkIc"), 0)
+    desc.putInteger(cid("BkIr"), 0)
+    desc.putDouble(cid("BkSb"), bright)
+    desc.putInteger(cid("BkSt"), threshold)
+    desc.putInteger(cid("BkNa"), noise_amount)
+    desc.putEnumerated(cid("BkNt"), cid("BtNt"), cid("BeNg"))
+    desc.putBoolean(cid("BkNm"), mono)
+    app.executeAction(cid("Bokh"), desc, 3)
     app.activeDocument.activeLayer = old_layer
 
-def img_resize(doc, w_percent=0, h_percent=0, resolution=0, method="bicubicAutomatic", constraint=True):
+
+def img_resize(
+    doc,
+    w_percent=0,
+    h_percent=0,
+    resolution=0,
+    method="bicubicAutomatic",
+    constraint=True,
+):
     resample = {
-        "nearest": chaID("Nrst"),
-        "bicubicSharper": strID("bicubicSharper"),
-        "bicubicAutomatic": strID("bicubicAutomatic")
+        "nearest": cid("Nrst"),
+        "bicubicSharper": sid("bicubicSharper"),
+        "bicubicAutomatic": sid("bicubicAutomatic"),
     }
     old_doc = app.activeDocument
     app.activeDocument = doc
     desc = ps.ActionDescriptor()
     if w_percent != 0 and h_percent != 0:
-        desc.putUnitDouble(chaID("Wdth"), chaID("#Prc"), w_percent)
-        desc.putUnitDouble(chaID("Hght"), chaID("#Prc"), h_percent)
+        desc.putUnitDouble(cid("Wdth"), cid("#Prc"), w_percent)
+        desc.putUnitDouble(cid("Hght"), cid("#Prc"), h_percent)
     if resolution == 0:
         resolution = doc.resolution * max(w_percent, h_percent) / 100
-    desc.putUnitDouble(chaID("Rslt"), chaID("#Rsl"), resolution)
-    desc.putBoolean(chaID("CnsP"), constraint)
-    desc.putBoolean(strID("scaleStyles"), True)
-    desc.putEnumerated(chaID("Intr"), chaID("Intp"), resample[method])
-    app.executeAction(chaID("ImgS"), desc, 3)
+    desc.putUnitDouble(cid("Rslt"), cid("#Rsl"), resolution)
+    desc.putBoolean(cid("CnsP"), constraint)
+    desc.putBoolean(sid("scaleStyles"), True)
+    desc.putEnumerated(cid("Intr"), cid("Intp"), resample[method])
+    app.executeAction(cid("ImgS"), desc, 3)
     app.activeDocument = old_doc
+
 
 def blow_up(filter):
 
@@ -156,8 +178,9 @@ def blow_up(filter):
     else:
         img_resize(doc, 800, 800, 800, "nearest")
         delta = doc.resolution / 8
-        doc.crop([-delta, -delta, doc.width+delta, doc.height+delta])
-    
+        doc.crop([-delta, -delta, doc.width + delta, doc.height + delta])
+
+
 def crt_filter():
 
     # Set up some files
@@ -175,9 +198,9 @@ def crt_filter():
     original_w = doc.width
     original_h = doc.height
     diag = (original_w**2 + original_h**2) ** 0.5
-    delta = sum(divmod(diag - min(original_w, original_h), 9)) # Was 603
+    delta = sum(divmod(diag - min(original_w, original_h), 9))  # Was 603
     post_delta = doc.resolution / 8
-    l, t, r, b = -delta, -delta, original_w+delta, original_h+delta
+    l, t, r, b = -delta, -delta, original_w + delta, original_h + delta
     app.activeDocument.crop([l, t, r, b])
     filters = app.activeDocument.layerSets.add()
     filters.name = "Filters"
@@ -211,7 +234,7 @@ def crt_filter():
     lcdlayer.fillOpacity = 30
     lcdlayer.name = "lcdlayer"
 
-        # CRT sub-pixel style overlay
+    # CRT sub-pixel style overlay
     # Setup base layers
     dupe = base_layer.duplicate()
     dupe.move(lcdlayer, ps.ElementPlacement.PlaceBefore)
@@ -266,7 +289,9 @@ def crt_filter():
     crtlayer.resize(97.05, 97.05, ps.AnchorPosition.MiddleCenter)
     lcdlayer.applyMaximum(1)
     lcdlayer.resize(97.1, 97.1, ps.AnchorPosition.MiddleCenter)
-    rgblayer.applyRadialBlur(1, ps.RadialBlurMethod.Zoom, ps.RadialBlurBest.RadialBlurBest)
+    rgblayer.applyRadialBlur(
+        1, ps.RadialBlurMethod.Zoom, ps.RadialBlurBest.RadialBlurBest
+    )
     rgblayer.resize(97.2, 97.2, ps.AnchorPosition.MiddleCenter)
     rgblayer.adjustLevels(22, 255, 1.0, 0, 255)
     glow_layer = rgblayer.duplicate()
@@ -276,7 +301,12 @@ def crt_filter():
     glow_layer.resize(100.8, 100.8, ps.AnchorPosition.MiddleCenter)
     glow_layer.fillOpacity = 30
 
-    l, t, r, b = delta-post_delta, delta-post_delta, original_w+delta+post_delta, original_h+delta+post_delta
+    l, t, r, b = (
+        delta - post_delta,
+        delta - post_delta,
+        original_w + delta + post_delta,
+        original_h + delta + post_delta,
+    )
     # l, t, r, b = d, d, original_w+d, original_h+d
     app.activeDocument.crop([l, t, r, b])
     img_resize(doc, resolution=800, method="bicubicSharper")
