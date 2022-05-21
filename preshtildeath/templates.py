@@ -11,9 +11,9 @@ import proxyshop.templates as temp
 import proxyshop.helpers as psd
 from proxyshop.constants import con
 from proxyshop.settings import cfg
+from proxyshop import gui
 import photoshop.api as ps
 from configs import presh_config
-from proxyshop import gui
 
 console = gui.console_handler
 app = ps.Application()
@@ -22,30 +22,122 @@ app = ps.Application()
 app.preferences.rulerUnits = ps.Units.Pixels
 app.preferences.typeUnits = ps.Units.Points
 
-"""
-    Functions live here that each template wants to use
 
 """
+Functions and Classes live here that multiple templates want to use
+"""
+class ModTextaArea (txt_layers.FormattedTextArea):
 
+    def __init__(self, layer, contents, text_color, flavor_text, ref_lyr, is_centered=False):
+        super().__init__(layer, contents, text_color, flavor_text, ref_lyr, is_centered, False)
+
+    def execute(self):
+        super().execute()
+        self.layer.translate(0, -10)
+
+
+class CreatureModTextaArea (txt_layers.CreatureFormattedTextArea):
+
+    def __init__(self, layer, contents, text_color, flavor_text, ref_lyr, pt_ref_lyr, pt_top_ref_lyr, is_centered=False):
+        super().__init__(layer, contents, text_color, flavor_text, ref_lyr, pt_ref_lyr, pt_top_ref_lyr, is_centered, False)
+
+    def execute(self):
+        super().execute()
+        self.layer.translate(0, -10)
+
+
+# For templates like PW, Leveler, Saga, and Class
+class PWLoyaltyCost (txt_layers.TextField):
+
+    def __init__ (self, layer, text_contents, text_color, badge):
+
+        super().__init__(layer, text_contents, text_color)
+        self.badge = badge
+
+    def execute (self):
+
+        super().execute()
+        doc = app.activeDocument
+
+        tools.magic_wand_select(self.badge, 10, 10)
+        doc.selection.invert()
+        doc.activeLayer = self.layer
+        psd.align_vertical()
+
+        if "—" in self.text_contents or "-" in self.text_contents:
+            layer_w = self.layer.bounds[2] - self.layer.bounds[0]
+            text_l = len(self.text_contents)
+            delta = ((1 / text_l) * layer_w) / 3
+            self.layer.translate(-delta, 0)
+
+        badge_scale(self.layer, self.badge, expand=True)
+
+
+class FormattedTextBottom (ModTextaArea):
+
+    def __init__(self, layer, content, color, flavor, ref_lyr, badge, is_centered=False):
+        super().__init__(layer, content, color, flavor, ref_lyr, is_centered, False)
+        self.badge = badge
+
+    def execute(self):
+        super().execute()
+        badge_scale(self.layer, self.badge, expand=True, invert=True)
+
+        # psd.select_layer_pixels(self.reference_layer)
+        # app.activeDocument.activeLayer = self.layer
+        # psd.align_vertical()
+
+
+def badge_scale(layer, badge, expand=False, invert=False):
+
+    doc = app.activeDocument
+    textitem = layer.textItem
+
+    while True:
+
+        layer_copy = layer.duplicate(app.activeDocument, ps.ElementPlacement.PlaceInside)
+        layer_copy.rasterize(ps.RasterizeType.TextContents)
+        tools.magic_wand_select(badge, 10, 10)
+        if invert:
+            doc.selection.invert()
+        if expand:
+            doc.selection.expand(16)
+        tools.magic_wand_select(layer_copy, 10, 10, "interfaceWhite")
+        doc.selection.invert()
+        doc.selection.clear()
+        doc.selection.deselect()
+        w, h = psd.compute_layer_dimensions(layer_copy)
+        layer_copy.remove()
+
+        if w == 0 or h == 0:
+            return True
+
+        textitem.size -= 0.2
+        if "Minus" in badge.name:
+            textitem.baselineShift += 0.3
+        elif "Zero" in badge.name:
+            textitem.baselineShift += 0.15
+    
 
 def move_art(layout):
     console.update("Moving art file...")
-    layout_type = type(layout).__name__
-    console.update(f"Layout type: {layout_type}")
 
     # Set up paths and determine file extension
     work_path = os.path.dirname(layout.file)
     new_name = f"{layout.name} ({layout.artist}) [{layout.set}]"
     ext = os.path.splitext(os.path.basename(layout.file))[1]
+    layout_type = type(layout).__name__
 
-    if os.path.basename(work_path) == "art":
+    if "finished" not in work_path:
         fin_path = os.path.join(work_path, "finished")
         if layout_type != "NormalLayout":
             fin_path = os.path.join(fin_path, layout_type)
     else:
         fin_path = work_path
+
     if not os.path.exists(fin_path):
         os.mkdir(fin_path)
+
     new_file = os.path.join(fin_path, f"{new_name}{ext}")
     try:
         if new_file != layout.file:
@@ -54,137 +146,144 @@ def move_art(layout):
         console.update("Could not move art file!", exception=e)
 
 
-"""
+class FullArtModularTemplate(temp.StarterTemplate):
+    """
     Created by preshtildeath
     Expands the textbox based on how much oracle text a card has
     Also expanding this template to service other card types
+    """
 
-"""
-
-
-class FullArtModularTemplate(temp.StarterTemplate):
     def template_file_name(self):
         return "preshtildeath/fullart-modular"
 
-    def template_suffix(self):
-        suffix = "Full Mod"  # Base suffix
+    def template_suffix (self):
+
         try:
             if cfg.save_jpeg:
-                test_file = f"{self.layout.name} ({suffix}).jpg"
+                test_file = f"{self.layout.name} ({self.suffix}).jpg"
             else:
-                test_file = f"{self.layout.name} ({suffix}).png"
+                test_file = f"{self.layout.name} ({self.suffix}).png"
+
+            # Check for multiples
             end_file = tools.filename_append(
                 test_file, os.path.join(con.cwd, "out")
-            )  # Check for multiples
-            end_file = os.path.splitext(os.path.basename(end_file))[
-                0
-            ]  # Cut to basename, then strip extension
+            )
+
+            # Cut to basename, then strip extension, then isolate suffix
+            end_file = os.path.splitext(os.path.basename(end_file))[0]  
             end_file = end_file[
                 end_file.find("(") + 1 : end_file.rfind(")")
-            ]  # Take out everything between first "(" and last ")"
+            ]
             return end_file  # "Base suffix) (x"
         except:
-            return suffix
+            return self.suffix
 
     def load_artwork(self):
+
         # Loads the specified art file into the specified layer.
         psd.paste_file(self.art_layer, self.layout.file)
         tools.zero_transform(self.art_layer)
 
-    def collector_info(self):
-        pass
+    def collector_info(self): pass
 
     def __init__(self, layout):
+
+        self.suffix = "Full Mod"
         app.preferences.interpolation = ps.ResampleMethod.BicubicAutomatic
         cfg.remove_flavor = True
         cfg.remove_reminder = True
+
+        super().__init__(layout)
+        
         filename = os.path.splitext(os.path.basename(layout.file))[0]
         if filename.rfind("[") < filename.rfind("]"):
-            self.set = filename[filename.rfind("[") + 1 : filename.rfind("]")]
+            self.set = filename[filename.rfind("[") + 1 : filename.rfind("]")].upper()
         else:
             self.set = layout.set
+
         # Check presh_config
         if presh_config.hollow_mana:
-            # change mana symbol colors
-            con.rgb_primary = {"r": 194, "g": 194, "b": 194}
-            con.rgb_c = {"r": 194, "g": 194, "b": 194}
+            # con.rgb_primary = {"r": 194, "g": 194, "b": 194}
+            # con.rgb_c = {"r": 194, "g": 194, "b": 194}
+            # con.rgb_w = {"r": 232, "g": 232, "b": 230}
+            # con.rgb_u = {"r": 0, "g": 122, "b": 196}
+            # con.rgb_b = {"r": 70, "g": 48, "b": 71}
+            # con.rgb_bh = {"r": 70, "g": 48, "b": 71}
+            # con.rgb_r = {"r": 233, "g": 63, "b": 46}
+            # con.rgb_g = {"r": 0, "g": 134, "b": 80}
             con.rgbi_c = {"r": 194, "g": 194, "b": 194}
-            con.rgb_w = {"r": 232, "g": 232, "b": 230}
             con.rgbi_w = {"r": 232, "g": 232, "b": 230}
-            con.rgb_u = {"r": 0, "g": 122, "b": 196}
-            con.rgbi_u = {"r": 0, "g": 122, "b": 196}
-            con.rgb_b = {"r": 70, "g": 48, "b": 71}
-            con.rgb_bh = {"r": 70, "g": 48, "b": 71}
-            con.rgbi_b = {"r": 70, "g": 48, "b": 71}
-            con.rgbi_bh = {"r": 70, "g": 48, "b": 71}
-            con.rgb_r = {"r": 233, "g": 63, "b": 46}
-            con.rgbi_r = {"r": 233, "g": 63, "b": 46}
-            con.rgb_g = {"r": 0, "g": 134, "b": 80}
-            con.rgbi_g = {"r": 0, "g": 134, "b": 80}
+            con.rgbi_u = {"r":  64, "g": 185, "b": 255}
+            con.rgbi_b = {"r": 147, "g":  31, "b": 153}
+            con.rgbi_bh ={"r": 147, "g":  31, "b": 153}
+            con.rgbi_r = {"r": 255, "g": 140, "b": 128}
+            con.rgbi_g = {"r":  22, "g": 217, "b": 139}
+            for c in [("rgb_"+s) for s in (list("wubrgc")+["bh", "primary"])]:
+                setattr(con, c, {"r": 250, "g": 250, "b": 250})
             for sym in con.symbols:
                 con.symbols[sym] = re.sub("[Qqo]", "v", con.symbols[sym])
-        super().__init__(layout)
 
-        # define some characteristics
+        # Define some characteristics
+        if not hasattr(self, "is_planeswalker"):
+            self.is_planeswalker = False
         if not hasattr(self, "is_basic"):
             self.is_basic = False
         if hasattr(layout, "type_line"):
-            self.is_land = bool(layout.type_line.find("Land") >= 0 or self.is_basic)
+            if layout.type_line.find("Land") >= 0 or self.is_basic:
+                self.is_land = True
         else:
             self.is_land = False
+
         # Choose your border
         if self.is_land:
-            self.art_reference = psd.getLayer("Full Art Frame", "Ref")
+            self.art_reference = tools.get_layer("Full Art Frame", "Ref")
         elif self.is_legendary:
-            self.art_reference = psd.getLayer("Legendary Frame", "Ref")
+            self.art_reference = tools.get_layer("Legendary Frame", "Ref")
         else:
-            self.art_reference = psd.getLayer("Art Frame", "Ref")
-
-        self.text_layers()
+            self.art_reference = tools.get_layer("Art Frame", "Ref")
 
     def text_layers(self):
         console.update("Preparing text layers...")
 
         # Set up some layers
-        mana_layer = psd.getLayer("Text", "Mana Cost")
-        name_layer = psd.getLayer("Card Name", "Text and Icons")
-        exp_layer = psd.getLayer("Expansion Symbol", "Expansion")
-        exp_ref = psd.getLayer("Expansion", "Ref")
-        exp_offset = psd.getLayer("Expansion Offset", "Ref")
-        type_layer = psd.getLayer("Typeline", "Text and Icons")
-        textbox_ref = psd.getLayer("Textbox", "Ref")
+        mana_layer = tools.get_layer("Text", "Mana Cost")
+        name_layer = tools.get_layer("Card Name", "Text and Icons")
+        exp_layer = tools.get_layer("Expansion Symbol", "Expansion")
+        exp_ref = tools.get_layer("Expansion", "Ref")
+        type_layer = tools.get_layer("Typeline", "Text and Icons")
+        self.textbox_ref = tools.get_layer("Textbox", "Ref")
 
         # Move typeline and modify textbox reference and text outlines if certain criteria is met
         scale = tools.dirty_text_scale(self.layout.oracle_text, 36)
-        if scale > 9:
-            modifier = -320
-        elif scale > 6:
-            modifier = -160
-        elif scale == 0:
-            modifier = 480
-        elif scale <= 1:
-            modifier = 240
-        elif scale <= 3:
-            modifier = 160
+        if self.is_creature:
+            if scale > 9:
+                modifier = -320
+            elif scale > 6:
+                modifier = -160
+            elif scale <= 1:
+                modifier = 240
+            elif scale <= 3:
+                modifier = 160
+            else:
+                modifier = 0
         else:
-            modifier = 0
-
-        # Cap the modifier for creature textbox
-        if self.is_creature and modifier > 160:
-            modifier = 160
+            if scale > 0:
+                modifier = max(480 - ((scale * 68) + 112), -600)
+            else:
+                modifier = 480
 
         # Apply typeline translate and textbox stretch
         type_layer.translate(0, modifier)
-        tools.layer_vert_stretch(textbox_ref, modifier, "bottom")
+        tools.layer_vert_stretch(self.textbox_ref, modifier, "bottom")
 
         # Set artist info
-        artist_text = psd.getLayer("Artist", "Legal").textItem
+        artist_text = tools.get_layer("Artist", "Legal").textItem
         artist_text.contents = self.layout.artist
 
         # Set symbol
         set_pdf = tools.get_set_pdf(self.set)
         exp_layer = tools.get_expansion(
-            exp_layer, self.layout.rarity, exp_ref, exp_offset, set_pdf
+            exp_layer, self.layout.rarity, exp_ref, set_pdf
         )
 
         # Mana, Name, and Type text
@@ -211,11 +310,13 @@ class FullArtModularTemplate(temp.StarterTemplate):
         )
 
         if self.is_creature:
+
             # Center the rules text if the text is at most two lines
             is_centered = bool(scale <= 2)
+
             # Creature card - set up creature layer for rules text and insert p/t
-            power_toughness = psd.getLayer("Power / Toughness", "Text and Icons")
-            rules_text = psd.getLayer(
+            power_toughness = tools.get_layer("Power / Toughness", "Text and Icons")
+            rules_text = tools.get_layer(
                 f"Rules Text - Creature {modifier}", "Text and Icons"
             )
             self.tx_layers.extend(
@@ -225,68 +326,71 @@ class FullArtModularTemplate(temp.StarterTemplate):
                         text_contents=f"{self.layout.power}/{self.layout.toughness}",
                         text_color=psd.get_text_layer_color(power_toughness),
                     ),
-                    txt_layers.CreatureFormattedTextArea(
+                    CreatureModTextaArea(
                         layer=rules_text,
                         text_contents=self.layout.oracle_text,
                         text_color=psd.get_text_layer_color(rules_text),
                         flavor_text=self.layout.flavor_text,
-                        reference_layer=textbox_ref,
-                        pt_reference_layer=psd.getLayer("PT Adjustment", "Ref"),
-                        pt_top_reference_layer=psd.getLayer("PT Top", "Ref"),
-                        is_centered=is_centered,
-                        fix_length=False,
-                    ),
+                        ref_lyr=self.textbox_ref,
+                        pt_ref_lyr=tools.get_layer("PT Adjustment", "Ref"),
+                        pt_top_ref_lyrr=tools.get_layer("PT Top", "Ref"),
+                        is_centered=is_centered
+                    )
                 ]
             )
-            # setup for Textless template
-            if scale == 0:
-                modifier = 360
-        else:
+
+        elif not self.is_planeswalker:
+
             # Center the rules text if the text is at most four lines
             is_centered = bool(scale <= 4)
+
             # Noncreature card - use the normal rules text layer and disable the p/t layer
-            psd.getLayer("Power / Toughness", "Text and Icons").visible = False
-            rules_text = psd.getLayer("Rules Text - Noncreature", "Text and Icons")
+            tools.get_layer("Power / Toughness", "Text and Icons").visible = False
+            rules_text = tools.get_layer("Rules Text - Noncreature", "Text and Icons")
             rules_text.translate(0, modifier)
-            self.tx_layers.append(
-                txt_layers.FormattedTextArea(
+            self.tx_layers += [
+                ModTextaArea(
                     layer=rules_text,
-                    text_contents=self.layout.oracle_text,
+                    contents=self.layout.oracle_text,
                     text_color=psd.get_text_layer_color(rules_text),
                     flavor_text=self.layout.flavor_text,
-                    reference_layer=textbox_ref,
-                    is_centered=is_centered,
-                    fix_length=False,
+                    ref_lyr=self.textbox_ref,
+                    is_centered=is_centered
                 )
-            )
+            ]
 
     def enable_frame_layers(self):
+
+        # Initialize our text layers
+        self.text_layers()
+
         # Eldrazi formatting?
         if self.layout.is_colorless:
+
             # Devoid formatting?
             if self.layout.pinlines != self.layout.twins:
                 self.layout.pinlines = "Land"
             else:
                 self.layout.pinlines = "Land"
                 self.layout.twins = "Land"
-            psd.getLayer(self.layout.twins, "Border").visible = True
+            tools.get_layer(self.layout.twins, "Border").visible = True
         if self.layout.is_nyx:
-            psd.getLayer(f"Nyx {self.layout.pinlines}", "Border").visible = True
+            tools.get_layer(f"Nyx {self.layout.pinlines}", "Border").visible = True
+
         # Twins and p/t box
-        psd.getLayer(self.layout.twins, "Name").visible = True
-        psd.getLayer(self.layout.twins, "Type").visible = True
+        tools.get_layer(self.layout.twins, "Name").visible = True
+        tools.get_layer(self.layout.twins, "Type").visible = True
         if self.is_creature:
-            psd.getLayer(self.layout.twins, "PT Box").visible = True
+            tools.get_layer(self.layout.twins, "PT Box").visible = True
 
         # Pinlines & Textbox
         if len(self.layout.pinlines) != 2:
-            psd.getLayer(self.layout.pinlines, "Pinlines").visible = True
-            psd.getLayer(self.layout.pinlines, "Textbox").visible = True
+            tools.get_layer(self.layout.pinlines, "Pinlines").visible = True
+            tools.get_layer(self.layout.pinlines, "Textbox").visible = True
         else:
             tools.wubrg_layer_sort(self.layout.pinlines, "Pinlines")
             tools.wubrg_layer_sort(self.layout.pinlines, "Textbox")
-        pinline_mask_set = psd.getLayerSet("Masked", "Pinlines")
-        psd.getLayer("Side Pinlines", pinline_mask_set).visible = presh_config.side_pins
+        tools.get_layer("Side Pinlines", "Masked", "Pinlines").visible = presh_config.side_pins
 
         # legendary crown
         if self.is_legendary:
@@ -294,38 +398,37 @@ class FullArtModularTemplate(temp.StarterTemplate):
                 style = "Legendary"
             else:
                 style = "Floating"
-            psd.getLayer(f"{style} Crown", pinline_mask_set).visible = True
-            title_ref = psd.getLayer(style, "Ref")
+            tools.get_layer(f"{style} Crown", "Masked", "Pinlines").visible = True
+            title_ref = tools.get_layer(style, "Ref")
             if not self.is_land:
-                psd.getLayer(
-                    "Crown Mask", psd.getLayerSet("Mask Wearer", "Border")
-                ).visible = True
+                tools.get_layer("Crown Mask", "Mask Wearer", "Border").visible = True
         else:
-            title_ref = psd.getLayer("Title", "Ref")
+            title_ref = tools.get_layer("Title", "Ref")
 
         # Give the lands a sexy transparent border
         if self.is_land:
-            land_textbox = psd.getLayer("Land", "Textbox")
+            land_textbox = tools.get_layer("Land", "Textbox")
             if not land_textbox.visible:
                 land_textbox.fillOpacity = 50
                 land_textbox.visible = True
-            border = psd.getLayerSet("Mask Wearer", "Border")
-            app.activeDocument.activeLayer = psd.getLayer("Normal", border)
+            app.activeDocument.activeLayer = tools.get_layer("Normal", "Mask Wearer", "Border")
             psd.enable_active_layer_mask()
             if len(self.layout.pinlines) != 2:
-                psd.getLayer(self.layout.pinlines, border.parent).visible = True
+                tools.get_layer(self.layout.pinlines, "Border").visible = True
             else:
-                tools.wubrg_layer_sort(self.layout.pinlines, border.parent)
+                tools.wubrg_layer_sort(self.layout.pinlines, "Border")
+
         # Give colored artifacts the grey pinlines on the sides of the art and main textbox
         if self.layout.pinlines != "Artifact" and self.layout.background == "Artifact":
+
             # Set textbox to artifact
-            psd.getLayer(self.layout.background, "Textbox").visible = True
+            tools.get_layer(self.layout.background, "Textbox").visible = True
 
             # Point to type reference (title reference is set in the legendary check)
-            type_ref = psd.getLayer("Type", "Ref")
+            type_ref = tools.get_layer("Type", "Ref")
 
             # Apply artifact clipping mask
-            pin_mask = psd.getLayer(self.layout.background, psd.getLayerSet("Pinlines"))
+            pin_mask = tools.get_layer(self.layout.background, "Pinlines")
             pin_mask.visible = True
 
             # Enable layer mask
@@ -343,30 +446,28 @@ class FullArtModularTemplate(temp.StarterTemplate):
             app.activeDocument.selection.deselect()  # Deselect
 
     def post_execute(self):
+
         con.reload()
+
         if presh_config.move_art:
-            # Move art source to a new folder
             move_art(self.layout)
 
 
-# Useful for textless duals.
-# TODO: Tweak layout for creatures so they can get rid of textbox
-class FullArtTextlessTemplate(FullArtModularTemplate):
+class FullArtTextlessTemplate (FullArtModularTemplate):
+    # Useful for textless duals.
+    # TODO: Tweak layout for creatures so they can get rid of textbox
+
     def __init__(self, layout):
         layout.oracle_text = ""
         super().__init__(layout)
 
 
-class BasicModularTemplate(FullArtModularTemplate):
-    def template_suffix(self):
-        # names = self.layout.artist.split()
-        # if len(names) > 1: last_name = names[-1]
-        # else: last_name = names[0]
-        return f"{self.layout.artist}) ({self.set}"
+class BasicModularTemplate (FullArtModularTemplate):
 
     def __init__(self, layout):
+
+        self.suffix = f"{self.layout.artist}) ({self.set}"  # Base suffix
         self.is_basic = True
-        super().__init__(layout)
         self.name_key = {
             "Plains": "W",
             "Island": "U",
@@ -374,20 +475,26 @@ class BasicModularTemplate(FullArtModularTemplate):
             "Mountain": "R",
             "Forest": "G",
         }
+        
+        super().__init__(layout)
 
     def text_layers(self):
+
         # Define some layers
-        name_layer = psd.getLayer("Card Name", "Text and Icons")
-        exp_layer = psd.getLayer("Expansion Symbol", "Expansion")
-        exp_ref = psd.getLayer("Expansion", "Ref")
-        type_layer = psd.getLayer("Typeline", "Text and Icons")
-        text_ref = psd.getLayer("Textbox", "Ref")
+        name_layer = tools.get_layer("Card Name", "Text and Icons")
+        exp_layer = tools.get_layer("Expansion Symbol", "Expansion")
+        exp_ref = tools.get_layer("Expansion", "Ref")
+        type_layer = tools.get_layer("Typeline", "Text and Icons")
+        text_ref = tools.get_layer("Textbox", "Ref")
+
         # Apply typeline translate and textbox stretch
         type_layer.translate(0, 480)
         text_ref.resize(100, 0, 7)
+
         # Set artist info
-        artist_text = psd.getLayer("Artist", "Artist").textItem
+        artist_text = tools.get_layer("Artist", "Artist").textItem
         artist_text.contents = self.layout.artist
+
         # Name and type text
         self.tx_layers.extend(
             [
@@ -410,90 +517,259 @@ class BasicModularTemplate(FullArtModularTemplate):
     def enable_frame_layers(self):
         layer_name = self.name_key[self.layout.name]
         for target in ["Pinlines", "Name", "Type", "Border"]:
-            psd.getLayer(layer_name, target).visible = True
+            tools.get_layer(layer_name, target).visible = True
         for target in ["Name", "Type"]:
-            layer = psd.getLayer("Land", target)
+            layer = tools.get_layer("Land", target)
             tools.set_opacity(layer, 50)
             layer.visible = True
 
 
-# One-size-fits-all for MDFC Front, MDFC Back, Transform, and Ixalan land back. Lessons too I guess.
 class DFCModularTemplate(FullArtModularTemplate):
-    def __init__(self, layout):
-        super().__init__(layout)
+    # One-size-fits-all for MDFC Front, MDFC Back, Transform, and Ixalan land back. Lessons too, I guess.
+    def transform (self):
 
-        if presh_config.side_pins:
-            top = "Legendary"
-        else:
-            top = "Floating"
-        pinline_mask_set = psd.getLayerSet("Masked", "Pinlines")
-        legend_mask = psd.getLayer(f"{top} Crown", pinline_mask_set)
-        namebox_mask = psd.getLayer("Name", psd.getLayerSet("Mask Wearer", "Name"))
         trans_icon = {
             "sunmoondfc": ["", ""],
             "mooneldrazidfc": ["", ""],
             "compasslanddfc": ["", ""],
             "modal_dfc": ["", ""],
+            "originpwdfc": ["", ""],
             "lesson": "",
         }
+        if presh_config.side_pins:
+            top = "Legendary"
+        else:
+            top = "Floating"
 
         # Scoot name text over
-        psd.getLayer("Card Name", "Text and Icons").translate(140, 0)
+        tools.get_layer("Card Name", "Text and Icons").translate(140, 0)
 
         # If MDFC, set the pointy, else it's the circle
-        if layout.transform_icon == "modal_dfc":
+        if self.layout.transform_icon == "modal_dfc":
             dfc = "MDFC"
-            psd.getLayer(dfc, psd.getLayerSet("Mask Wearer", "Name")).visible = True
+            tools.get_layer(dfc, mask_wearer).visible = True
         else:
             dfc = "TDFC"
-            psd.getLayer(dfc, "Name").visible = True
-        dfc_pin = psd.getLayer(dfc, pinline_mask_set)
-        dfc_icon = psd.getLayer(dfc, "Text and Icons")
-        dfc_icon.textItem.contents = trans_icon[layout.transform_icon][self.layout.face]
+            tools.get_layer(dfc, "Name").visible = True
+        mask_wearer = tools.get_layer_set("Mask Wearer", "Name")
+        tools.get_layer("Name", mask_wearer).visible = False
+        tools.get_layer("DFC", mask_wearer).visible = True
+
+        # Setup transform icon
+        dfc_icon = tools.get_layer(dfc, "Text and Icons")
+        dfc_icon.textItem.contents = trans_icon[self.layout.transform_icon][self.layout.face]
         dfc_icon.visible = True
 
         # Cut out the icon from the legendary frame if necessary
+        dfc_pin = tools.get_layer(dfc, "Masked", "Pinlines")
         if self.is_legendary:
+            legend_mask = tools.get_layer(f"{top} Crown", "Masked", "Pinlines")
             tools.magic_wand_select(dfc_pin, 0, 0)
             app.activeDocument.selection.expand(2)
             app.activeDocument.selection.invert()
             tools.layer_mask_select(legend_mask)
             app.activeDocument.selection.fill(tools.rgbcolor(0, 0, 0))
             app.activeDocument.selection.deselect()
+
         # Turn on/off pinlines
-        psd.getLayer("Standard", pinline_mask_set).visible = False
+        tools.get_layer("Standard", "Masked", "Pinlines").visible = False
         dfc_pin.visible = True
 
-        # Turn on/off the emboss
-        psd.getLayer("Emboss", "Name").visible = False
-        dfc_emboss = psd.getLayer("DFC Emboss", "Name")
-        dfc_emboss.visible = True
+    def text_layers(self):
 
-        # Copy emboss, invert middle and adjust levels to create mask for namebox
-        dfc_mask = psd.getLayer("DFC Emboss Mask", "Name")
-        dfc_mask.visible = True
-        app.activeDocument.activeLayer = dfc_mask
-        app.activeDocument.selection.selectAll()
-        app.activeDocument.selection.copy()
-        tools.layer_mask_select(namebox_mask)
-        app.activeDocument.selection.clear()
-        tools.paste_in_place()
-        app.activeDocument.selection.deselect()
-        dfc_mask.delete()
+        super().text_layers()
+        self.transform()
 
 
-"""
-    Created by preshtildeath
-    Expandable pixel-art template
-    100dpi start, then can blow up to 800dpi with the CRT filter
+class PWFullArtModularTemplate (FullArtModularTemplate):
+    
+    def __init__(self, layout):
 
-"""
+        self.is_planeswalker = True
+        super().__init__(layout)
+
+    def text_layers(self):
+
+        super().text_layers()
+
+        # Establish arrays for abilities
+        doc = app.activeDocument
+        reference = tools.get_layer("Textbox", "Ref")
+        left, right = reference.bounds[0], reference.bounds[2]
+        ref_h = psd.compute_layer_dimensions(reference)["height"]
+        b, w = [0]*3, [255]*3
+        black, white = tools.rgbcolor(*b), tools.rgbcolor(*w)
+        oracle_array = self.layout.oracle_text.split("\n")
+        # oracle_len = len(self.layout.oracle_text)
+        overlay = tools.get_layer("Overlay", "Textbox").duplicate()
+        centered = False 
+
+        """
+        Testing pre-establishing text size
+        """
+        try:
+
+            text_layer = tools.get_layer("Static", "PW Ability", "Text and Icons").duplicate()
+            text_layer.visible = True
+
+            temp_text = self.layout.oracle_text.replace("\n", "\r")
+            temp_text = re.sub('\{.*?\}', 'X', temp_text)
+            text_layer.textItem.contents = temp_text
+            
+            text_heights = []
+
+            txt_layers.scale_text_to_fit_reference(text_layer, reference)
+            
+            for i, line in enumerate(temp_text.split("\r")):
+                text_layer.textItem.contents = line
+                tools.magic_wand_select(text_layer, 0, 0)
+                doc.selection.invert()
+                bounds = doc.selection.bounds
+                height = bounds[3] - bounds[1]
+                text_heights += [height]
+            text_layer.textItem.contents = ""
+            text_layer.remove()
+
+            text_heights = list(map(lambda x: x + 40, text_heights))
+            text_h = sum(text_heights)
+            text_size = text_layer.textItem.size
+
+        except:
+            print("Nope")
+
+        for i, ability in enumerate(oracle_array):
+
+            # # Draw overlay
+            # overlay_height = (len(ability) / oracle_len) * ref_h
+            overlay_height = (text_heights[i] / text_h) * ref_h
+            overlayer = overlay.duplicate()
+            doc.activeLayer = overlayer
+            if i == 0:
+                top = reference.bounds[1]
+            else:
+                top = bottom
+            if i == len(oracle_array):
+                bottom = reference.bounds[3]
+            else:
+                bottom = top + overlay_height
+            doc.selection.select([
+                [left, top],
+                [right, top],
+                [right, bottom],
+                [left, bottom]
+            ])
+            if i % 2 == 0:
+                doc.selection.fill(black)
+            else:
+                doc.selection.fill(white)
+
+            # Determing if the ability is activated
+            colon_index = ability.find(": ")
+            if colon_index > 0 < 5:
+
+                # Determine cost text
+                cost_text = ability[:colon_index]
+
+                # Grab correct badge, setup cost text, link them
+                if "X" not in cost_text:
+                    cost_text = int(cost_text)
+                    if cost_text > 0:
+                        badge = tools.get_layer("Plus", "Loyalty", "PW").duplicate()
+                    elif cost_text < 0:
+                        badge = tools.get_layer("Minus", "Loyalty", "PW").duplicate()
+                    else:
+                        badge = tools.get_layer("Zero", "Loyalty", "PW").duplicate()
+                else:
+                    if "-" in cost_text or "—" in cost_text:
+                        badge = tools.get_layer("Minus", "Loyalty", "PW").duplicate()
+                    else:
+                        badge = tools.get_layer("Plus", "Loyalty", "PW").duplicate()
+
+                # Setup cost text layer
+                cost = tools.get_layer("PW Cost", "Text and Icons").duplicate()
+                doc.activeLayer = badge
+                psd.align_vertical()
+                doc.selection.deselect()
+                self.tx_layers += [
+                    PWLoyaltyCost(
+                        layer=cost,
+                        text_contents=str(cost_text),
+                        text_color=white,
+                        badge=badge
+                    )
+                ]
+
+                # Fix ability text
+                centered = False
+                ability_text = ability[colon_index+2:]
+                ability_layer = tools.get_layer("Activated", "PW Ability", "Text and Icons").duplicate()
+
+            else:
+                # Fix ability text
+                centered = True
+                ability_text = ability
+                ability_layer = tools.get_layer("Static", "PW Ability", "Text and Icons").duplicate()
+
+            ability_layer.translate(0, top + 20 - ability_layer.bounds[1])
+            ability_layer.textItem.size = text_size
+
+            # Add divider
+            if i > 0:
+                divider = tools.get_layer("Divider", "Loyalty", "PW").duplicate()
+                tools.magic_wand_select(divider, 0, 0)
+                doc.selection.invert()
+                bounds = doc.selection.bounds
+                divider.translate(0, top-2-bounds[1])
+                doc.selection.deselect()
+            
+            overlayer = overlayer.duplicate(reference, ps.ElementPlacement.PlaceAfter)
+            if i < len(oracle_array):
+                self.tx_layers += [
+                    ModTextaArea(
+                        layer=ability_layer,
+                        contents=ability_text,
+                        text_color=white,
+                        flavor_text=self.layout.flavor_text,
+                        ref_lyr=overlayer,
+                        is_centered=centered
+                    )
+                ]
+            else:
+                self.tx_layers += [
+                    FormattedTextBottom(
+                        layer=ability_layer,
+                        text_contents=ability_text,
+                        text_color=white,
+                        flavor_text=self.layout.flavor_text,
+                        ref_lyr=overlayer,
+                        badge=tools.get_layer("Badge", "PW"),
+                        is_centered=centered
+                    )
+                ]
+        
+        tools.get_layer("Badge", "PW").visible = True
+        self.tx_layers += [
+            txt_layers.TextField(
+                layer=tools.get_layer("Power / Toughness", "Text and Icons"),
+                text_contents=self.layout.loyalty,
+                text_color=white
+            )
+        ]
+
+
+class PWTransformFullArtTemplate (PWFullArtModularTemplate):
+
+    def text_layers(self):
+
+        DFCModularTemplate.transform(self)
+        super().text_layers()
 
 
 class PixelModularTemplate(temp.StarterTemplate):
     """
-    * Created by preshtildeath
-    * 100dpi pixelart based template
+    Created by preshtildeath
+    Expandable pixel-art template
+    100dpi start, then can blow up to 800dpi with the CRT filter
     """
 
     def template_file_name(self):
@@ -559,16 +835,9 @@ class PixelModularTemplate(temp.StarterTemplate):
 
         # If inverted or circle-less, inner symbols are colored and background circle is black
         if presh_config.invert_mana or not presh_config.symbol_bg:
+            for c in [("rgb_"+s) for s in (list("wubrgc")+["bh"])]:
+                setattr(con, c, {"r": 13, "g": 13, "b": 13})
             con.rgb_primary = {"r": 217, "g": 217, "b": 217}
-            (
-                con.rgb_c,
-                con.rgb_w,
-                con.rgb_u,
-                con.rgb_bh,
-                con.rgb_b,
-                con.rgb_r,
-                con.rgb_g,
-            ) = [{"r": 13, "g": 13, "b": 13}] * 7
             con.rgbi_c = {"r": 217, "g": 217, "b": 217}
             con.rgbi_w = {"r": 255, "g": 255, "b": 255}
             con.rgbi_u = {"r": 64, "g": 134, "b": 255}
@@ -597,17 +866,17 @@ class PixelModularTemplate(temp.StarterTemplate):
         console.update("Preparing text layers...")
 
         # Set up text layers
-        name_layer = psd.getLayer("Name", "Text")
-        type_layer = psd.getLayer("Typeline", "Text")
-        mana_layer = psd.getLayer("Mana", "Text")
-        body_layer = psd.getLayer("Oracle", "Text")
-        textbox = psd.getLayer("Mask", "Textbox")
-        self.art_reference = psd.getLayer("Art Ref", "Ref")
-        title_pin = psd.getLayer("Title", "Pinlines")
-        type_pin = psd.getLayer("Type", "Pinlines")
+        name_layer = tools.get_layer("Name", "Text")
+        type_layer = tools.get_layer("Typeline", "Text")
+        mana_layer = tools.get_layer("Mana", "Text")
+        body_layer = tools.get_layer("Oracle", "Text")
+        textbox = tools.get_layer("Mask", "Textbox")
+        self.art_reference = tools.get_layer("Art Ref", "Ref")
+        title_pin = tools.get_layer("Title", "Pinlines")
+        type_pin = tools.get_layer("Type", "Pinlines")
 
         # Set artist info
-        artist_text = psd.getLayer("Artist", "Legal").textItem
+        artist_text = tools.get_layer("Artist", "Legal").textItem
         artist_text.contents = self.layout.artist
 
         # Name, Type, Mana, and Body text
@@ -641,14 +910,14 @@ class PixelModularTemplate(temp.StarterTemplate):
         body_layer.textItem.leading *= 0.8
 
         if self.is_creature:
-            power_toughness = psd.getLayer("PT Text", "Text")
-            self.tx_layers.append(
+            power_toughness = tools.get_layer("PT Text", "Text")
+            self.tx_layers += [
                 txt_layers.TextField(
                     layer=power_toughness,
                     text_contents=f"{self.layout.power}/{self.layout.toughness}",
                     text_color=psd.get_text_layer_color(power_toughness),
                 )
-            )
+            ]
             delta = body_layer.bounds[3] - textbox.bounds[3] + 8
         else:
             delta = body_layer.bounds[3] - textbox.bounds[3] + 3
@@ -678,21 +947,21 @@ class PixelModularTemplate(temp.StarterTemplate):
                 self.layout.twins = "Land"
             self.layout.pinlines = "Land"
         # Twins and p/t box
-        psd.getLayer(self.layout.twins, "Name").visible = True
-        psd.getLayer(self.layout.twins, "Type").visible = True
+        tools.get_layer(self.layout.twins, "Name").visible = True
+        tools.get_layer(self.layout.twins, "Type").visible = True
         if self.is_creature:
-            psd.getLayerSet("PT Box").visible = True
-            psd.getLayer(self.layout.twins, "PT Box").visible = True
+            tools.get_layer_set("PT Box").visible = True
+            tools.get_layer(self.layout.twins, "PT Box").visible = True
         # Pinlines & Textbox
         if len(self.layout.pinlines) != 2:
-            psd.getLayer(self.layout.pinlines, "Pinlines").visible = True
-            psd.getLayer(self.layout.pinlines, "Textbox").visible = True
+            tools.get_layer(self.layout.pinlines, "Pinlines").visible = True
+            tools.get_layer(self.layout.pinlines, "Textbox").visible = True
         else:
             tools.wubrg_layer_sort(self.layout.pinlines, "Pinlines")
             tools.wubrg_layer_sort(self.layout.pinlines, "Textbox")
         # Land formatting
         if self.is_land:
-            land_textbox = psd.getLayer("Land", "Textbox")
+            land_textbox = tools.get_layer("Land", "Textbox")
             if not land_textbox.visible:
                 land_textbox.fillOpacity = 50
             land_textbox.visible = True
@@ -702,10 +971,10 @@ class PixelModularTemplate(temp.StarterTemplate):
         console.update("Post text layers...")
 
         # Establish the layers
-        name_layer = psd.getLayer("Name", "Text")
-        type_layer = psd.getLayer("Typeline", "Text")
-        mana_layer = psd.getLayer("Mana", "Text")
-        body_layer = psd.getLayer("Oracle", "Text")
+        name_layer = tools.get_layer("Name", "Text")
+        type_layer = tools.get_layer("Typeline", "Text")
+        mana_layer = tools.get_layer("Mana", "Text")
+        body_layer = tools.get_layer("Oracle", "Text")
 
         # Fix any anti-aliasing and kerning weirdness
         text_layers = [name_layer, type_layer, mana_layer, body_layer]

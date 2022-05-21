@@ -142,8 +142,26 @@ def img_resize(doc, w_percent=0, h_percent=0, resolution=0, method="bicubicAutom
     desc.putEnumerated(chaID("Intr"), chaID("Intp"), resample[method])
     app.executeAction(chaID("ImgS"), desc, 3)
     app.activeDocument = old_doc
+
+def blow_up(filter):
+
+    doc = app.activeDocument
+
+    if filter:
+        img_resize(doc, 900, 900, 900, "nearest")
+        doc.flatten()
+        default_colors()
+        color_exchange()
+        crt_filter()
+    else:
+        img_resize(doc, 800, 800, 800, "nearest")
+        delta = doc.resolution / 8
+        doc.crop([-delta, -delta, doc.width+delta, doc.height+delta])
     
 def crt_filter():
+
+    # Set up some files
+    doc = app.activeDocument
     ass_path = "assets"
     crt_file = os.path.join(ass_path, "crt9x9.png")
     rgb_file = os.path.join(ass_path, "rgb18x9.png")
@@ -151,20 +169,14 @@ def crt_filter():
     g_file = os.path.join(ass_path, "g18x9.png")
     b_file = os.path.join(ass_path, "b18x9.png")
     scan_file = os.path.join(ass_path, "scan1x9.png")
-
-    doc = app.activeDocument
-    doc.flatten()
     base_layer = app.activeDocument.artLayers[0]
-    img_resize(doc, 900, 900, 900, "nearest")
-
-    default_colors()
-    color_exchange()
 
     # Extend borders for later spherize
     original_w = doc.width
     original_h = doc.height
-    delta = 603
-    after_delta = doc.resolution / 8
+    diag = (original_w**2 + original_h**2) ** 0.5
+    delta = sum(divmod(diag - min(original_w, original_h), 9)) # Was 603
+    post_delta = doc.resolution / 8
     l, t, r, b = -delta, -delta, original_w+delta, original_h+delta
     app.activeDocument.crop([l, t, r, b])
     filters = app.activeDocument.layerSets.add()
@@ -264,7 +276,7 @@ def crt_filter():
     glow_layer.resize(100.8, 100.8, ps.AnchorPosition.MiddleCenter)
     glow_layer.fillOpacity = 30
 
-    l, t, r, b = delta-after_delta, delta-after_delta, original_w+delta+after_delta, original_h+delta+after_delta
+    l, t, r, b = delta-post_delta, delta-post_delta, original_w+delta+post_delta, original_h+delta+post_delta
     # l, t, r, b = d, d, original_w+d, original_h+d
     app.activeDocument.crop([l, t, r, b])
     img_resize(doc, resolution=800, method="bicubicSharper")

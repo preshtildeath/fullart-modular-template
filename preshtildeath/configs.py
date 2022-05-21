@@ -22,3 +22,4 @@ class MyConfig (Config):
 
 cfg_path = path.join(path.dirname(__file__), "config.ini")
 presh_config = MyConfig(cfg_path)
+presh_config.load()

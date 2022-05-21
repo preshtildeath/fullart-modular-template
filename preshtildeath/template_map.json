@@ -21,5 +21,20 @@
 	},
 	"mdfc_back": {
 		"Fullart Modular": "DFCModularTemplate"
+	},
+	"planeswalker": {
+		"Fullart Modular": "PWFullArtModularTemplate"
+	},
+	"pw_tf_front": {
+		"Fullart Modular": "PWTransformFullArtTemplate"
+	},
+	"pw_tf_back": {
+		"Fullart Modular": "PWTransformFullArtTemplate"
+	},
+	"pw_mdfc_front": {
+		"Fullart Modular": "PWTransformFullArtTemplate"
+	},
+	"pw_mdfc_back": {
+		"Fullart Modular": "PWTransformFullArtTemplate"
 	}
 }
