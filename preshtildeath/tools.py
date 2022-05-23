@@ -250,8 +250,8 @@ def fill_expansion_symbol(ref, stroke_color):
 
     # Magic Wand non-contiguous outside symbol, then subtract contiguous
     x, y = ref.bounds[0] - 50, ref.bounds[1] - 50
-    magic_wand_select(ref, x, y, "set", 0, True, False)
-    magic_wand_select(ref, x, y, "subtractFrom", 0, True)
+    magic_wand_select(ref, x, y, "setd", 0, True, False)
+    magic_wand_select(ref, x, y, "SbtF", 0, True)
 
     # Make a new layer and fill with stroke color
     layer = add_layer("Expansion Mask")
@@ -310,11 +310,18 @@ def wubrg_layer_sort(color_pair, layers):
 
 
 def add_select_layer(layer):
-    # Select a layer's pixels and adds them to the selection
+    """"
+    Adds to current Selection using the boundary of a layer.
+    """
     select_layer(layer, ps.SelectionType.ExtendSelection)
 
 
 def select_layer(layer, type=None):
+    """"
+    Creates a Selection using the boundary of a layer.
+    """
+    if type is None:
+        type = ps.SelectionType.ReplaceSelection
     left, top, right, bottom = layer.bounds
 
     app.activeDocument.selection.select(
@@ -368,24 +375,24 @@ def layer_mask_select(layer):
 
 
 # Magic Wand target layer at coordinate (X, Y)
-def magic_wand_select(layer, x, y, style="set", t=0, a=True, c=True, s=False):
+def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
     """
     Magic Wand Select target layer at coordinates (x, y)
     @param layer ArtLayer: Layer to be sampled.
     @param x int: Pixels from left of document.
     @param y int: Pixels from top of document.
     @param style str:
-        "set": Creates new selection.
-        "addTo": Adds to existing selection.
-        "subtractFrom": Subtracts from existing selection.
-        "intersectWith": Intersects with existing selection.
+        "setd": Creates new selection.
+        "AddT": Adds to existing selection.
+        "SbtF": Subtracts from existing selection.
+        "IntW": Intersects with existing selection.
     @param t int: Tolerance.
     @param a bool: Anti-aliasing.
     @param c bool: Contiguous.
     @param s bool: Sample all layers.
     @return: Selection.
     """
-    select = sid(style)
+    select = cid(style)
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     desc1 = ps.ActionDescriptor()
