@@ -5,14 +5,14 @@ import os
 import re
 import tools
 import crt_tools
+from tools import presh_config
+from proxyshop import gui
+from proxyshop.constants import con
+from proxyshop.settings import cfg
 import proxyshop.text_layers as txt_layers
 import proxyshop.templates as temp
 import proxyshop.helpers as psd
-from proxyshop.constants import con
-from proxyshop.settings import cfg
-from proxyshop import gui
 import photoshop.api as ps
-from configs import presh_config
 
 console = gui.console_handler
 app = ps.Application()
@@ -23,7 +23,7 @@ app.preferences.typeUnits = ps.Units.Points
 
 
 class ModTextaArea(txt_layers.FormattedTextArea):
-    # Just here to fix the vertical offset
+    """Just here to fix the vertical offset."""
     def __init__(
         self, layer, contents, text_color, flavor_text, ref_lyr, is_centered=False
     ):
@@ -37,7 +37,7 @@ class ModTextaArea(txt_layers.FormattedTextArea):
 
 
 class CreatureModTextaArea(txt_layers.CreatureFormattedTextArea):
-    # Just here to fix the vertical offset
+    """Just here to fix the vertical offset."""
     def __init__(
         self,
         layer,
@@ -67,7 +67,7 @@ class CreatureModTextaArea(txt_layers.CreatureFormattedTextArea):
 
 
 class PWLoyaltyCost(txt_layers.TextField):
-    # Shrink loyalty ability costs to fit inside the badge
+    """Shrink loyalty ability costs to fit inside the badge."""
     def __init__(self, layer, text_contents, text_color, badge):
 
         super().__init__(layer, text_contents, text_color)
@@ -78,21 +78,22 @@ class PWLoyaltyCost(txt_layers.TextField):
         super().execute()
         doc = app.activeDocument
 
-        tools.select_layer(self.badge)
+        tools.select_nonblank_pixels(self.badge)
         doc.activeLayer = self.layer
         psd.align_vertical()
 
         if "—" in self.text_contents or "-" in self.text_contents:
-            layer_w = self.layer.bounds[2] - self.layer.bounds[0]
+            # Let's just give this guy a tiny bitty nudge
+            layer_w = tools.text_layer_dimensions(self.layer)["width"]
             text_l = len(self.text_contents)
-            delta = ((1 / text_l) * layer_w) / 3
+            delta = ((1 / text_l) * layer_w) / 5
             self.layer.translate(-delta, 0)
 
-        badge_scale(self.layer, self.badge, expand=True)
+        badge_scale(self.layer, self.badge)
 
 
 class FormattedTextBottom(ModTextaArea):
-    # Fix any overlap with the starting loyalty box
+    """Fix any overlap with the starting loyalty box."""
     def __init__(
         self, layer, content, color, flavor, ref_lyr, badge, is_centered=False
     ):
@@ -102,35 +103,35 @@ class FormattedTextBottom(ModTextaArea):
     def execute(self):
         super().execute()
         self.layer.translate(0, -10)
-        badge_scale(self.layer, self.badge, expand=True, invert=True)
+        badge_scale(self.layer, self.badge, invert=False)
 
 
-def badge_scale(layer, badge, expand=False, invert=False):
+def badge_scale(layer, badge, invert=True, expand=True):
 
     doc = app.activeDocument
     textitem = layer.textItem
 
     while True:
-
-        tools.select_blank_pixels(badge)
+        tools.select_nonblank_pixels(badge)
         if invert:
             doc.selection.invert()
         if expand:
-            doc.selection.expand(16)
-        tools.magic_wand_select(layer, 10, 10, "IntW")
+            doc.selection.expand(15)
+        tools.select_nonblank_pixels(layer, "IntW")
+        
         try:
             w, h = tools.get_selection_dimensions()
-            if 0 in [w, h]:
-                break
-            textitem.size -= 0.2
-            if "Minus" in badge.name:
-                textitem.baselineShift += 0.3
-            elif "Zero" in badge.name:
-                textitem.baselineShift += 0.15
+            if w == 0 or h == 0:
+                return
         except:
-            break
-        
+            return
 
+        doc.selection.deselect()
+        textitem.size -= 0.2
+        if "Minus" in badge.name:
+            textitem.baselineShift += 0.3
+        elif "Zero" in badge.name:
+            textitem.baselineShift += 0.15
 
 
 def move_art(layout):
@@ -219,7 +220,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
             con.rgbi_bh= {"r": 125, "g":  47, "b": 129}
             con.rgbi_r = {"r": 255, "g": 140, "b": 128}
             con.rgbi_g = {"r":  22, "g": 217, "b": 139}
-            for c in [("rgb_" + s) for s in (list("wubrgc") + ["bh", "primary"])]:
+            for c in [("rgb_" + s) for s in list("wubrgc")+["bh", "primary"]]:
                 setattr(con, c, {"r": 250, "g": 250, "b": 250})
             for sym in con.symbols:
                 con.symbols[sym] = con.symbols[sym].replace("o", "v")
@@ -236,7 +237,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
             self.is_land = False
 
         # Let's pick an art reference layer
-        if self.is_land:
+        if self.is_land or self.is_planeswalker:
             self.art_reference = tools.get_layer("Full Art Frame", "Ref")
         elif self.is_legendary:
             self.art_reference = tools.get_layer("Legendary Frame", "Ref")
@@ -366,6 +367,8 @@ class FullArtModularTemplate(temp.StarterTemplate):
                 self.layout.pinlines = "Land"
                 self.layout.twins = "Land"
             tools.get_layer(self.layout.twins, "Border").visible = True
+
+        # Nyx Formatting
         if self.layout.is_nyx:
             tools.get_layer(f"Nyx {self.layout.pinlines}", "Border").visible = True
 
@@ -394,7 +397,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
                 style = "Floating"
             tools.get_layer(f"{style} Crown", "Masked", "Pinlines").visible = True
             title_ref = tools.get_layer(style, "Ref")
-            if not self.is_land:
+            if not self.is_land or not self.is_planeswalker:
                 tools.get_layer("Crown Mask", "Mask Wearer", "Border").visible = True
         else:
             title_ref = tools.get_layer("Title", "Ref")
@@ -413,6 +416,17 @@ class FullArtModularTemplate(temp.StarterTemplate):
                 tools.get_layer(self.layout.pinlines, "Border").visible = True
             else:
                 tools.wubrg_layer_sort(self.layout.pinlines, "Border")
+
+        # Give our PW a sexy transparent border
+        if self.is_planeswalker:
+            doc.activeLayer = tools.get_layer(
+                "Normal", "Mask Wearer", "Border"
+            )
+            psd.enable_active_layer_mask()
+            if len(self.layout.pinlines) != 2:
+                tools.get_layer(f"PW {self.layout.pinlines}", "Border").visible = True
+            else:
+                tools.wubrg_layer_sort(f"PW {self.layout.pinlines}", "Border")
 
         # Give colored artifacts the grey pinlines on the sides of the art and main textbox
         if self.layout.pinlines != "Artifact" and self.layout.background == "Artifact":
@@ -513,6 +527,7 @@ class DFCModularTemplate(FullArtModularTemplate):
     """
     def transform(self):
 
+        doc = app.activeDocument
         trans_icon = {
             "sunmoondfc": ["", ""],
             "mooneldrazidfc": ["", ""],
@@ -530,13 +545,17 @@ class DFCModularTemplate(FullArtModularTemplate):
         tools.get_layer("Card Name", "Text and Icons").translate(140, 0)
 
         # If MDFC, set the pointy, else it's the circle
+        mask_wearer = tools.get_layer_set("Mask Wearer", "Name")
         if self.layout.transform_icon == "modal_dfc":
             dfc = "MDFC"
             tools.get_layer(dfc, mask_wearer).visible = True
+            doc.activeLayer = tools.get_layer_set(
+                "Mask Wearer", "Border"
+            )
+            psd.enable_active_layer_mask()
         else:
             dfc = "TDFC"
             tools.get_layer(dfc, "Name").visible = True
-        mask_wearer = tools.get_layer_set("Mask Wearer", "Name")
         tools.get_layer("Name", mask_wearer).visible = False
         tools.get_layer("DFC", mask_wearer).visible = True
 
@@ -551,12 +570,12 @@ class DFCModularTemplate(FullArtModularTemplate):
         dfc_pin = tools.get_layer(dfc, "Masked", "Pinlines")
         if self.is_legendary:
             legend_mask = tools.get_layer(f"{top} Crown", "Masked", "Pinlines")
-            tools.select_blank_pixels(dfc_pin)
-            app.activeDocument.selection.expand(2)
-            app.activeDocument.selection.invert()
+            tools.magic_wand_select(dfc_pin, 0, 0)
+            doc.selection.expand(2)
+            doc.selection.invert()
             tools.layer_mask_select(legend_mask)
-            app.activeDocument.selection.fill(tools.rgbcolor(0, 0, 0))
-            app.activeDocument.selection.deselect()
+            doc.selection.fill(tools.rgbcolor(0, 0, 0))
+            doc.selection.deselect()
 
         # Turn on/off pinlines
         tools.get_layer("Standard", "Masked", "Pinlines").visible = False
@@ -601,16 +620,17 @@ class PWFullArtModularTemplate(FullArtModularTemplate):
         temp_text = self.layout.oracle_text.replace("\n", "\r")
         temp_text = re.sub("\{.*?\}", "X", temp_text)
         text_layer.textItem.contents = temp_text
-
-        txt_layers.scale_text_to_fit_reference(text_layer, reference)
+        text_layer.translate(0, reference.bounds[1] - text_layer.bounds[1])
+        
+        tools.scale_text_to_fit_reference(text_layer, reference)
 
         text_heights = []
         for line in temp_text.split("\r"):
             text_layer.textItem.contents = line
-            height = tools.text_layer_bounds(text_layer)[1]
+            height = tools.text_layer_dimensions(text_layer)["height"]
             text_heights += [height + 40]
         text_layer.textItem.contents = ""
-        text_layer.visible = False
+        text_layer.remove()
 
         text_h = sum(text_heights)
         text_size = text_layer.textItem.size
@@ -695,8 +715,7 @@ class PWFullArtModularTemplate(FullArtModularTemplate):
             # Add divider
             if i > 0:
                 divider = tools.get_layer("Divider", "Loyalty", "PW").duplicate()
-                tools.select_blank_pixels(divider)
-                doc.selection.invert()
+                tools.select_nonblank_pixels(divider)
                 bounds = doc.selection.bounds
                 divider.translate(0, (top - 2) - bounds[1])
                 doc.selection.deselect()
@@ -761,11 +780,12 @@ class PixelModularTemplate(temp.StarterTemplate):
             else:
                 test_file = f"{self.layout.name} ({suffix}).png"
             end_file = tools.filename_append(
-                test_file, os.path.join(con.cwd, "out")
+                test_file,
+                os.path.join(con.cwd, "out")
             )  # Check for multiples
-            end_file = os.path.splitext(os.path.basename(end_file))[
-                0
-            ]  # Cut to basename, then strip extension
+            end_file = os.path.splitext(
+                os.path.basename(end_file)
+            )[0]  # Cut to basename, then strip extension
             end_file = end_file[
                 end_file.find("(") + 1 : end_file.rfind(")")
             ]  # Take out everything between first "(" and last ")"
@@ -778,8 +798,7 @@ class PixelModularTemplate(temp.StarterTemplate):
         console.update("Loading artwork...")
 
         # Establish size to scale down to and resize
-        ref_w = self.art_reference.bounds[2] - self.art_reference.bounds[0]
-        ref_h = self.art_reference.bounds[3] - self.art_reference.bounds[1]
+        ref_w, ref_h = psd.compute_layer_dimensions(self.art_reference).values()
         art_doc = app.load(self.layout.file)
         scale = 100 * max(ref_w / art_doc.width, ref_h / art_doc.height)
         if scale < 50:

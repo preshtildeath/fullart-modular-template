@@ -16,12 +16,25 @@ def split_floats(op, min_num, value):
     Example: with op='m' and value='10,20 30,40,' the returned value will be
              ['m', [10.0, 20.0], 'l', [30.0, 40.0]]
     """
-    floats = [float(seq) for seq in re.findall('(-?\d*\.?\d*(?:e[+-]\d+)?)', value) if seq]
+    floats = [float(seq) for seq in re.findall(r'(-?\d*\.?\d*(?:[eE][+-]?\d+)?)', value) if seq]
     res = []
     for i in range(0, len(floats), min_num):
         if i > 0 and op in {'m', 'M'}:
             op = 'l' if op == 'm' else 'L'
         res.extend([op, floats[i:i + min_num]])
+    return res
+
+
+def split_arc_values(op, value):
+    float_re = r'(-?\d*\.?\d*(?:[eE][+-]?\d+)?)'
+    flag_re = r'([1|0])'
+    # 3 numb, 2 flags, 1 coord pair
+    a_seq_re = r'[\s,]*'.join([
+        float_re, float_re, float_re, flag_re, flag_re, float_re, float_re
+    ]) + r'[\s,]*'
+    res = []
+    for seq in re.finditer(a_seq_re, value.strip()):
+        res.extend([op, [float(num) for num in seq.groups()]])
     return res
 
 
@@ -66,7 +79,10 @@ def normalise_svg_path(attr):
             if ops[op] == 0:  # Z, z
                 result.extend([op, []])
         else:
-            result.extend(split_floats(op, ops[op], item))
+            if op.lower() == 'a':
+                result.extend(split_arc_values(op, item))
+            else:
+                result.extend(split_floats(op, ops[op], item))
             op = result[-2]  # Remember last op
 
     return result
@@ -77,8 +93,8 @@ def convert_quadratic_to_cubic_path(q0, q1, q2):
     Convert a quadratic Bezier curve through q0, q1, q2 to a cubic one.
     """
     c0 = q0
-    c1 = (q0[0] + 2. / 3 * (q1[0] - q0[0]), q0[1] + 2. / 3 * (q1[1] - q0[1]))
-    c2 = (c1[0] + 1. / 3 * (q2[0] - q0[0]), c1[1] + 1. / 3 * (q2[1] - q0[1]))
+    c1 = (q0[0] + 2 / 3 * (q1[0] - q0[0]), q0[1] + 2 / 3 * (q1[1] - q0[1]))
+    c2 = (c1[0] + 1 / 3 * (q2[0] - q0[0]), c1[1] + 1 / 3 * (q2[1] - q0[1]))
     c3 = q2
     return c0, c1, c2, c3
 
@@ -89,6 +105,8 @@ def convert_quadratic_to_cubic_path(q0, q1, q2):
 
 def vector_angle(u, v):
     d = hypot(*u) * hypot(*v)
+    if d == 0:
+        return 0
     c = (u[0] * v[0] + u[1] * v[1]) / d
     if c < -1:
         c = -1
@@ -145,7 +163,9 @@ def end_point_to_center_parameters(x1, y1, x2, y2, fA, fS, rx, ry, phi=0):
         rx *= rr
         ry *= rr
         r = x1d * x1d / (rx * rx) + y1d * y1d / (ry * ry)
-    r = 1 / r - 1
+        r = 1 / r - 1
+    elif r != 0:
+        r = 1 / r - 1
     if -1e-10 < r < 0:
         r = 0
     r = sqrt(r)
@@ -178,14 +198,16 @@ def end_point_to_center_parameters(x1, y1, x2, y2, fA, fS, rx, ry, phi=0):
 def bezier_arc_from_centre(cx, cy, rx, ry, start_ang=0, extent=90):
     if abs(extent) <= 90:
         nfrag = 1
-        frag_angle = float(extent)
+        frag_angle = extent
     else:
-        nfrag = int(ceil(abs(extent) / 90.))
-        frag_angle = float(extent) / nfrag
+        nfrag = ceil(abs(extent) / 90)
+        frag_angle = extent / nfrag
+    if frag_angle == 0:
+        return []
 
     frag_rad = radians(frag_angle)
     half_rad = frag_rad * 0.5
-    kappa = abs(4. / 3. * (1. - cos(half_rad)) / sin(half_rad))
+    kappa = abs(4 / 3 * (1 - cos(half_rad)) / sin(half_rad))
 
     if frag_angle < 0:
         kappa = -kappa
@@ -214,6 +236,11 @@ def bezier_arc_from_centre(cx, cy, rx, ry, start_ang=0, extent=90):
 
 
 def bezier_arc_from_end_points(x1, y1, rx, ry, phi, fA, fS, x2, y2):
+    if (x1 == x2 and y1 == y2):
+        # From https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes:
+        # If the endpoints (x1, y1) and (x2, y2) are identical, then this is
+        # equivalent to omitting the elliptical arc segment entirely.
+        return []
     if phi:
         # Our box bezier arcs can't handle rotations directly
         # move to a well known point, eliminate phi and transform the other point

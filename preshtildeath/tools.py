@@ -6,10 +6,20 @@ import re
 import json
 import math
 import requests
+import os.path as path
 import photoshop.api as ps
 import proxyshop.helpers as psd
+from proxyshop.settings import Config
+from proxyshop import gui
 
+console = gui.console_handler
 app = ps.Application()
+
+try:
+    from reportlab.graphics import renderPDF
+    from svglib.svglib import svg2rlg
+except Exception as e:
+    console.log_error(e)
 
 
 def get_layer(name: str, *group):
@@ -17,7 +27,7 @@ def get_layer(name: str, *group):
     Retrieve layer object.
     """
     layer_set = app.activeDocument
-    if len(group) > 0:
+    if group:
         layer_set = get_layer_set(*group)
     if isinstance(name, str):
         return layer_set.artLayers.getByName(name)
@@ -29,56 +39,93 @@ def get_layer_set(name: str, *group):
     Retrieve layer group object.
     """
     layer_set = app.activeDocument
-    if len(group) > 0:
+    if group:
         layer_set = get_layer_set(*group)
     if isinstance(name, str):
-        layer = layer_set.layers.getByName(name)
-        if layer.typename == "LayerSet":
-            return layer
         return layer_set.layerSets.getByName(name)
     return name
 
 
 def text_layer_bounds(layer) -> list:
-    select_blank_pixels(layer)
-    app.activeDocument.selection.invert()
+    select_nonblank_pixels(layer)
     bounds = app.activeDocument.selection.bounds
     app.activeDocument.selection.deselect()
     return bounds
 
 
-def text_layer_dimensions(layer) -> list:
+def text_layer_dimensions(layer) -> dict:
     bounds = text_layer_bounds(layer)
-    width, height = bounds[2] - bounds[0], bounds[3] - bounds[1]
-    return [width, height]
+    return {
+        "width": bounds[2] - bounds[0],
+        "height": bounds[3] - bounds[1],
+    }
 
 
-def get_selection_dimensions() -> list:
-    selection = app.activeDocument.selection
-    return [
-        selection.bounds[2] - selection.bounds[0],
-        selection.bounds[3] - selection.bounds[1],
-    ]
+def get_selection_dimensions() -> dict:
+    bounds = app.activeDocument.selection.bounds
+    return {
+        "width": bounds[2] - bounds[0],
+        "height": bounds[3] - bounds[1],
+    }
 
 
-def inside_of(inner, outer):
-    test = bool(
-        inner.bounds[0] >= outer.bounds[0]
-        and inner.bounds[1] >= outer.bounds[1]
-        and inner.bounds[2] <= outer.bounds[2]
-        and inner.bounds[3] <= outer.bounds[3]
+def is_inside(inner, outer) -> bool:
+    return bool(
+        inner[0] >= outer[0]
+        and inner[1] >= outer[1]
+        and inner[2] <= outer[2]
+        and inner[3] <= outer[3]
     )
-    return test
 
 
-# loop up through parent directories
+def is_outside(inner, outer) -> bool:
+    return bool(
+        inner[0] > outer[2]
+        or inner[1] > outer[3]
+        or inner[2] < outer[0]
+        or inner[3] < outer[1]
+    )
+
+
+def scale_text_to_fit_reference(layer, reference_layer):
+    """
+    * Resize a given text layer's contents (in 0.25 pt increments) until it fits inside a specified reference layer.
+    * The resulting text layer will have equal font and lead sizes.
+    """
+    if reference_layer is None: return True
+    text_item = layer.textItem
+    starting_font_size = text_item.size
+    font_size = starting_font_size
+    step_size = 0.25
+    scaled = False
+
+    # Obtain proper spacing for this document size
+    spacing = int((app.activeDocument.width/3264)*60)
+
+    # Reduce the reference height by 64 pixels to avoid text landing on the top/bottom bevels
+    ref_h = psd.compute_layer_dimensions(reference_layer)['height']-spacing
+    lyr_h = text_layer_dimensions(layer)['height']
+
+    while ref_h < lyr_h:
+        scaled = True
+        new_step = font_size - (((ref_h / lyr_h) ** 0.4) * font_size)
+        # step down font and lead sizes by the step size, and update those sizes in the layer
+        font_size -= max(step_size, new_step)
+        text_item.size = font_size
+        lyr_h = text_layer_dimensions(layer)['height']
+
+    return scaled
+
+
 def parent_dirs(file, depth=1):
+    """Loop up through parent directories."""
     if depth >= 1:
-        return os.path.dirname(parent_dirs(file, depth - 1))
+        return path.dirname(parent_dirs(file, depth - 1))
     return file
 
 
-def rgbcolor(r, g, b):
+def rgbcolor(r: int, g: int, b: int):
+    """Return a SolidColor object with given decimal values."""
     color = ps.SolidColor()
     color.rgb.red = r
     color.rgb.green = g
@@ -86,8 +133,8 @@ def rgbcolor(r, g, b):
     return color
 
 
-def get_expansion(layer, rarity, ref_layer, set_pdf):
-    # Pastes the given PDF into the specified layer.
+def get_expansion(layer, rarity: str, ref_layer, set_pdf: str):
+    """Pastes the given PDF into the specified layer."""
 
     # Start nice and clean
     white = rgbcolor(255, 255, 255)
@@ -95,39 +142,40 @@ def get_expansion(layer, rarity, ref_layer, set_pdf):
     prev_active_layer = doc.activeLayer
     doc.activeLayer = layer
 
-    # open pdf twice as big as reference just in case
+    # Open PDF twice as big as reference just in case, since we don't know the PDF dimensions
     max_size = (ref_layer.bounds[2] - ref_layer.bounds[0]) * 2
     pdf_open(set_pdf, max_size)
 
-    # note context switch to art file
+    # Note context switch to art file.
     app.activeDocument.selection.selectAll()
     app.activeDocument.selection.copy()
     app.activeDocument.close(ps.SaveOptions.DoNotSaveChanges)
 
-    # note context switch back to template
+    # Note context switch back to template.
     layer = doc.paste()
     zero_transform(layer)
 
     lay_dim = psd.compute_layer_dimensions(layer)
     ref_dim = psd.compute_layer_dimensions(ref_layer)
 
-    # Determine how much to scale the layer by such that it fits into the reference layer's bounds
+    # Determine how much to scale the layer by such that it fits into the reference layer's bounds.
     scale_factor = 100 * min(
-        ref_dim["width"] / lay_dim["width"], ref_dim["height"] / lay_dim["height"]
+        ref_dim["width"] / lay_dim["width"],
+        ref_dim["height"] / lay_dim["height"]
     )
     layer.resize(scale_factor, scale_factor)
 
-    # Align verticle center, horizontal right
+    # Align verticle center, horizontal right.
     psd.select_layer_pixels(ref_layer)
     psd.align_vertical()
-    layer.translate(ref_layer.bounds[2] - layer.bounds[2], 0)
     doc.selection.deselect()
+    layer.translate(ref_layer.bounds[2] - layer.bounds[2], 0)
 
     fill_expansion_symbol(layer, white)
 
-    # apply rarity mask if necessary, and center it on symbol
+    # Apply rarity mask if necessary, and center it on symbol.
     if rarity != "common":
-        mask_layer = get_layer(rarity, "Expansion")
+        mask_layer = get_layer(rarity, layer.parent)
         doc.activeLayer = mask_layer
         psd.select_layer_pixels(layer)
         psd.align_horizontal()
@@ -135,25 +183,24 @@ def get_expansion(layer, rarity, ref_layer, set_pdf):
         psd.clear_selection()
         mask_layer.visible = True
 
-    # return document to previous state
     doc.activeLayer = prev_active_layer
     return layer
 
 
 def get_set_pdf(code):
-    # Grab the pdf file from our database
+    """Grab the pdf file from our database."""
 
     # Check if the pdf exists as named and return that if it does
-    pdf_folder = os.path.join(parent_dirs(__file__), "assets", "Set Symbol PDF")
-    if not os.path.exists(pdf_folder):
+    pdf_folder = path.join(parent_dirs(__file__), "assets", "Set Symbol PDF")
+    if not path.exists(pdf_folder):
         os.mkdir(pdf_folder)
-    pdf = os.path.join(pdf_folder, f"{code}.pdf")
-    if os.path.exists(pdf):
+    pdf = path.join(pdf_folder, f"{code}.pdf")
+    if path.exists(pdf):
         return pdf
 
     # Open up our JSON file if it exists
-    set_pdf_json = os.path.join(pdf_folder, "set_pdf.json")
-    if os.path.exists(set_pdf_json):
+    set_pdf_json = path.join(pdf_folder, "set_pdf.json")
+    if path.exists(set_pdf_json):
         set_json = json.load(open(set_pdf_json, "r"))
     else:
         set_json = {}
@@ -169,29 +216,24 @@ def get_set_pdf(code):
             set_json[key] = [code]
     else:
         key = key[0]
-
-    # Hacky way to check if svg_uri is assigned
-    if "svg_uri" not in dir():
         svg_uri = (
             f"https://c2.scryfall.com/file/scryfall-symbols/sets/{key.lower()}.svg"
         )
 
     # Look for our PDF, or fetch the SVG from Scryfall and convert
-    pdf = os.path.join(pdf_folder, f"{key}.pdf")
-    if not os.path.exists(pdf):
+    pdf = path.join(pdf_folder, f"{key}.pdf")
+    if not path.exists(pdf):
         pdf_fetch(pdf_folder, key, svg_uri)
 
     # Format our JSON for readability, keeping the values one line
-    clean_json = (
-        json.dumps(set_json)
-        .replace("{", "{\n\t")
-        .replace("], ", "],\n\t")
-        .replace("]}", "]\n}")
-    )
     with open(set_pdf_json, "w") as file:
-        file.write(clean_json)
-
-    # Finally return our pdf
+        file.write(
+            json.dumps(set_json)
+            .replace("{", "{\n\t")
+            .replace("], ", "],\n\t")
+            .replace("]}", "]\n}")
+        )
+        
     return pdf
 
 
@@ -199,7 +241,7 @@ def get_set_pdf(code):
 def scry_scrape(code):
     code = code.lower()
     set_json = requests.get(f"https://api.scryfall.com/sets/{code}", timeout=1).json()
-    name = os.path.splitext(os.path.basename(set_json["icon_svg_uri"]))[
+    name = path.splitext(path.basename(set_json["icon_svg_uri"]))[
         0
     ].upper()  # Grab the SVG name
     if name == "CON":
@@ -210,11 +252,8 @@ def scry_scrape(code):
 
 # Take the image name and download from scryfall, then convert to pdf
 def pdf_fetch(folder, code, svg_uri):
-    from reportlab.graphics import renderPDF
-    from svglib.svglib import svg2rlg
-
-    file = os.path.join(folder, f"{code.lower()}.pdf")
-    temp_svg = os.path.join(os.getcwd(), "temp_svg.svg")
+    file = path.join(folder, f"{code.lower()}.pdf")
+    temp_svg = path.join(os.getcwd(), "temp_svg.svg")
     scry_svg = requests.get(svg_uri, timeout=1).content
     with open(temp_svg, "wb") as svg:
         svg.write(scry_svg)
@@ -267,14 +306,14 @@ def fill_expansion_symbol(ref, stroke_color):
 
 # Check if a file already exists, then adds (x) if it does
 def filename_append(file, send_path):
-    file_name, extension = os.path.splitext(os.path.basename(file))  # image, .xxx
-    test_name = os.path.join(send_path, f"{file_name}{extension}")
-    if os.path.exists(test_name):  # location/image.xxx
+    file_name, extension = path.splitext(path.basename(file))  # image, .xxx
+    test_name = path.join(send_path, f"{file_name}{extension}")
+    if path.exists(test_name):  # location/image.xxx
         multi = 1
-        test_name = os.path.join(send_path, f"{file_name} ({multi}){extension}")
-        while os.path.exists(test_name):  # location/image (1).xxx
+        test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
+        while path.exists(test_name):  # location/image (1).xxx
             multi += 1
-            test_name = os.path.join(send_path, f"{file_name} ({multi}){extension}")
+            test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
     return test_name  #  returns "location/image.xxx" or "location/image (x).xxx"
 
 
@@ -381,7 +420,7 @@ def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
     @param layer ArtLayer: Layer to be sampled.
     @param x int: Pixels from left of document.
     @param y int: Pixels from top of document.
-    @param style str:
+    @param style str: Defaults to new selection.
         "setd": Creates new selection.
         "AddT": Adds to existing selection.
         "SbtF": Subtracts from existing selection.
@@ -412,7 +451,16 @@ def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
     return app.activeDocument.selection
 
 
-def select_blank_pixels(layer):
+def select_nonblank_pixels(layer, style="setd"):
+    """
+    Returns a Selection around any non-blank pixels in target ArtLayer.
+    @param style str: Defaults to new selection.
+        "setd": Creates new selection.
+        "AddT": Adds to existing selection.
+        "SbtF": Subtracts from existing selection.
+        "IntW": Intersects with existing selection.
+    """
+    select = cid(style)
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     dsc = ps.ActionDescriptor()
@@ -423,7 +471,7 @@ def select_blank_pixels(layer):
     dsc.putReference(sid("null"), ref1)
     ref2.putEnumerated(chan, chan, sid("transparencyEnum"))
     dsc.putReference(sid("to"), ref2)
-    app.executeAction(sid("set"), dsc)
+    app.executeAction(select, dsc, 3)
     app.activeDocument.activeLayer = old_layer
     return app.activeDocument.selection
 
@@ -555,3 +603,29 @@ def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
 
     app.currentTool = old_tool
     app.activeDocument.activeLayer = old_layer
+
+
+cfg_path = path.join(path.dirname(__file__), "config.ini")
+class MyConfig(Config):
+    def __init__(self, conf=cfg_path):
+        super().__init__(conf)
+
+    def load(self):
+        self.move_art = self.file.getboolean("GENERAL", "Move.Art")
+        self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
+        self.hollow_mana = self.file.getboolean("FULLART", "Hollow.Mana")
+        self.crt_filter = self.file.getboolean("PIXEL", "CRT.Filter")
+        self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
+        self.symbol_bg = self.file.getboolean("PIXEL", "Symbol.BG")
+
+    def update(self):
+        self.file.set("GENERAL", "Move.Art", str(self.move_art))
+        self.file.set("FULLART", "Side.Pinelines", str(self.side_pins))
+        self.file.set("FULLART", "Hollow.Mana", str(self.hollow_mana))
+        self.file.set("PIXEL", "CRT.Filter", str(self.crt_filter))
+        self.file.set("PIXEL", "Invert.Mana", str(self.invert_mana))
+        self.file.set("PIXEL", "Symbol.BG", str(self.symbol_bg))
+        with open("config.ini", "w", encoding="utf-8") as ini:
+            self.file.write(ini)
+presh_config = MyConfig(cfg_path)
+presh_config.load()
