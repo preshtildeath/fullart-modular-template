@@ -1,25 +1,22 @@
 """
 PRESHTILDEATH TOOLS
 """
-import os
-import re
 import json
 import math
-import requests
+import os
 import os.path as path
+import re
+
 import photoshop.api as ps
+import proxyshop.gui as gui
 import proxyshop.helpers as psd
+import requests
 from proxyshop.settings import Config
-from proxyshop import gui
+
+import fpdf
 
 console = gui.console_handler
 app = ps.Application()
-
-try:
-    from reportlab.graphics import renderPDF
-    from svglib.svglib import svg2rlg
-except Exception as e:
-    console.log_error(e)
 
 
 def get_layer(name: str, *group):
@@ -55,14 +52,15 @@ def text_layer_bounds(layer) -> list:
 
 def text_layer_dimensions(layer) -> dict:
     bounds = text_layer_bounds(layer)
-    return {
-        "width": bounds[2] - bounds[0],
-        "height": bounds[3] - bounds[1],
-    }
+    return bounds_to_dimensions(bounds)
 
 
 def get_selection_dimensions() -> dict:
     bounds = app.activeDocument.selection.bounds
+    return bounds_to_dimensions(bounds)
+
+
+def bounds_to_dimensions(bounds) -> dict:
     return {
         "width": bounds[2] - bounds[0],
         "height": bounds[3] - bounds[1],
@@ -87,7 +85,23 @@ def is_outside(inner, outer) -> bool:
     )
 
 
-def scale_text_to_fit_reference(layer, reference_layer):
+def is_layer_blank(layer):
+    select_nonblank_pixels(layer)
+    try:
+        bounds = app.activeDocument.selection.bounds
+        return True
+    except:
+        app.activeDocument.selection.deselect()
+        return False
+
+def pt_to_px(num):
+    """Take given 'pt' amount and return distance in pixels for the active document."""
+    doc = app.activeDocument
+    pref_scale = 72 if app.preferences.pointSize == 1 else 72.27
+    return num * (doc.resolution / pref_scale)
+
+
+def scale_creature_text(layer, reference_layer, modifier):
     """
     * Resize a given text layer's contents (in 0.25 pt increments) until it fits inside a specified reference layer.
     * The resulting text layer will have equal font and lead sizes.
@@ -98,21 +112,25 @@ def scale_text_to_fit_reference(layer, reference_layer):
     font_size = starting_font_size
     step_size = 0.25
     scaled = False
+    end = len(layer.textItem.contents)
 
     # Obtain proper spacing for this document size
     spacing = int((app.activeDocument.width/3264)*60)
 
     # Reduce the reference height by 64 pixels to avoid text landing on the top/bottom bevels
-    ref_h = psd.compute_layer_dimensions(reference_layer)['height']-spacing
-    lyr_h = text_layer_dimensions(layer)['height']
+    ref_h = psd.get_layer_dimensions(reference_layer)['height']-spacing
+    lyr_h = psd.get_layer_dimensions(layer)['height']
+
+    # Initial nudge down to below typeline
+    resize_text_array(layer, [0, 1], modifier, spacer=True)
 
     while ref_h < lyr_h:
         scaled = True
         new_step = font_size - (((ref_h / lyr_h) ** 0.4) * font_size)
         # step down font and lead sizes by the step size, and update those sizes in the layer
         font_size -= max(step_size, new_step)
-        text_item.size = font_size
-        lyr_h = text_layer_dimensions(layer)['height']
+        resize_text_array(layer, [1, end], size=font_size)
+        lyr_h = psd.get_layer_dimensions(layer)['height']
 
     return scaled
 
@@ -133,30 +151,86 @@ def rgbcolor(r: int, g: int, b: int):
     return color
 
 
-def get_expansion(layer, rarity: str, ref_layer, set_pdf: str):
-    """Pastes the given PDF into the specified layer."""
+def get_expansion(layer, rarity: str, ref_layer, set_code: str):
+    """Pastes the given SVG into the specified layer."""
 
     # Start nice and clean
     white = rgbcolor(255, 255, 255)
     doc = app.activeDocument
     prev_active_layer = doc.activeLayer
     doc.activeLayer = layer
+    set_code = set_code.upper()
 
-    # Open PDF twice as big as reference just in case, since we don't know the PDF dimensions
+    # Check if the SVG exists as named and return that if it does.
+    svg_folder = path.join(parent_dirs(__file__), "assets", "Set Symbols")
+    if not path.exists(svg_folder):
+        os.mkdir(svg_folder)
+    test_svg = path.join(svg_folder, f"{set_code}.svg")
+    if path.exists(test_svg):
+        return test_svg
+
+    # Open up our JSON file if it exists.
+    set_path = path.join(svg_folder, "set_svg.json")
+    if path.exists(set_path):
+        with open(set_path, "r") as set_fp:
+            set_json = json.load(set_fp)
+    else:
+        set_json = {}
+
+    # Iterate JSON looking for a match.
+    key = [k for k, v in set_json.items() if set_code in v]
+    if key:
+        key = key[0]
+        svg_uri = (
+            f"https://c2.scryfall.com/file/scryfall-symbols/sets/{key.lower()}.svg"
+        )
+    else:
+        scry_json = requests.get(f"https://api.scryfall.com/sets/{set_code.lower()}", timeout=5).json()
+        svg_uri = scry_json["icon_svg_uri"]
+        key = path.splitext(path.basename(svg_uri))[0].upper()
+        print(key, set_code, svg_uri)
+        if key == "CON":
+            key = "CONFLUX"
+        set_json[key] = set_json[key] + [set_code] if key in set_json.keys() else [set_code]
+
+    # Look for our local SVG, or fetch the SVG from Scryfall.
+    svg_path = path.join(svg_folder, f"{key}.svg")
+    if not path.exists(svg_path):
+        scry_svg = requests.get(svg_uri, timeout=5).content
+        # Fix path data for photoshop
+        for arc in re.findall(r"a[^ZzLlHhVvCcSsQqTtAa]+", svgstring):
+            arc_after = arc
+            for a_arg in re.findall(r"\S+\s\S+\s\S+\s[01][01]", arc):
+                arc_after = arc_after.replace(a_arg, a_arg[:-1]+" "+a_arg[-1:]+" ")
+            svgstring = svgstring.replace(arc, arc_after)
+        with open(svg_path, "wb") as svg_file:
+            svg_file.write(scry_svg)
+
+    # Format our JSON for readability, keeping the values one line.
+    with open(set_path, "w") as file:
+        file.write(
+            json.dumps(set_json)
+            .replace("{", "{\n\t")
+            .replace("], ", "],\n\t")
+            .replace("]}", "]\n}")
+        )
+
+    # Try opening our SVG and if it is blank, convert to PDF then open that
     max_size = (ref_layer.bounds[2] - ref_layer.bounds[0]) * 2
-    pdf_open(set_pdf, max_size)
-
-    # Note context switch to art file.
-    app.activeDocument.selection.selectAll()
-    app.activeDocument.selection.copy()
-    app.activeDocument.close(ps.SaveOptions.DoNotSaveChanges)
+    set_doc = svg_open(svg_path, max_size)
+    if not is_layer_blank(set_doc.artLayers[0]):
+        set_doc.close(ps.SaveOptions.DoNotSaveChanges)
+        set_doc = pdf_open(svg_path, max_size)
+    set_doc.selection.selectAll()
+    set_doc.selection.copy()
+    set_doc.close(ps.SaveOptions.DoNotSaveChanges)
 
     # Note context switch back to template.
     layer = doc.paste()
     zero_transform(layer)
 
-    lay_dim = psd.compute_layer_dimensions(layer)
-    ref_dim = psd.compute_layer_dimensions(ref_layer)
+    lay_dim = psd.get_layer_dimensions(layer)
+    ref_dim = psd.get_layer_dimensions(ref_layer)
 
     # Determine how much to scale the layer by such that it fits into the reference layer's bounds.
     scale_factor = 100 * min(
@@ -175,7 +249,7 @@ def get_expansion(layer, rarity: str, ref_layer, set_pdf: str):
 
     # Apply rarity mask if necessary, and center it on symbol.
     if rarity != "common":
-        mask_layer = get_layer(rarity, layer.parent)
+        mask_layer = get_layer(rarity, "Expansion")
         doc.activeLayer = mask_layer
         psd.select_layer_pixels(layer)
         psd.align_horizontal()
@@ -187,88 +261,11 @@ def get_expansion(layer, rarity: str, ref_layer, set_pdf: str):
     return layer
 
 
-def get_set_pdf(code):
-    """Grab the pdf file from our database."""
-
-    # Check if the pdf exists as named and return that if it does
-    pdf_folder = path.join(parent_dirs(__file__), "assets", "Set Symbol PDF")
-    if not path.exists(pdf_folder):
-        os.mkdir(pdf_folder)
-    pdf = path.join(pdf_folder, f"{code}.pdf")
-    if path.exists(pdf):
-        return pdf
-
-    # Open up our JSON file if it exists
-    set_pdf_json = path.join(pdf_folder, "set_pdf.json")
-    if path.exists(set_pdf_json):
-        set_json = json.load(open(set_pdf_json, "r"))
-    else:
-        set_json = {}
-
-    # Iterate JSON looking for a match
-    code = code.upper()
-    key = [k for k, v in set_json.items() if code in v]
-    if key == []:
-        key, svg_uri = scry_scrape(code)
-        if key in set_json.keys():
-            set_json[key] += [code]
-        else:
-            set_json[key] = [code]
-    else:
-        key = key[0]
-        svg_uri = (
-            f"https://c2.scryfall.com/file/scryfall-symbols/sets/{key.lower()}.svg"
-        )
-
-    # Look for our PDF, or fetch the SVG from Scryfall and convert
-    pdf = path.join(pdf_folder, f"{key}.pdf")
-    if not path.exists(pdf):
-        pdf_fetch(pdf_folder, key, svg_uri)
-
-    # Format our JSON for readability, keeping the values one line
-    with open(set_pdf_json, "w") as file:
-        file.write(
-            json.dumps(set_json)
-            .replace("{", "{\n\t")
-            .replace("], ", "],\n\t")
-            .replace("]}", "]\n}")
-        )
-        
-    return pdf
-
-
-# Take a set code and return the corresponding image name
-def scry_scrape(code):
-    code = code.lower()
-    set_json = requests.get(f"https://api.scryfall.com/sets/{code}", timeout=1).json()
-    name = path.splitext(path.basename(set_json["icon_svg_uri"]))[
-        0
-    ].upper()  # Grab the SVG name
-    if name == "CON":
-        name = "CONFLUX"  # Turns out you can't make a file named CON
-    svg_uri = set_json["icon_svg_uri"]
-    return [name, svg_uri]
-
-
-# Take the image name and download from scryfall, then convert to pdf
-def pdf_fetch(folder, code, svg_uri):
-    file = path.join(folder, f"{code.lower()}.pdf")
-    temp_svg = path.join(os.getcwd(), "temp_svg.svg")
-    scry_svg = requests.get(svg_uri, timeout=1).content
-    with open(temp_svg, "wb") as svg:
-        svg.write(scry_svg)
-    renderPDF.drawToFile(svg2rlg(temp_svg), file)
-    try:
-        os.remove(temp_svg)
-    except:
-        pass
-
-
 # Resize layer to reference, center vertically, and line it up with the right bound
 def frame_expansion_symbol(layer, reference_layer):
 
-    lay_dim = psd.compute_layer_dimensions(layer)
-    ref_dim = psd.compute_layer_dimensions(reference_layer)
+    lay_dim = psd.get_layer_dimensions(layer)
+    ref_dim = psd.get_layer_dimensions(reference_layer)
 
     # Determine how much to scale the layer by such that it fits into the reference layer's bounds
     scale_factor = 100 * min(
@@ -321,9 +318,17 @@ def filename_append(file, send_path):
 def dirty_text_scale(input_text, chars_in_line):
     input_text = re.sub("\{.*?\}", "X", input_text)
     line_count = math.ceil(input_text.count("\n") * 0.5)
-    lines = input_text.split("\n")
-    for line in lines:
-        line_count += math.ceil(len(line) / chars_in_line)
+    for paragraph in input_text.split("\n"):
+        line_count += 1
+        start, end = 0, 1
+        words = paragraph.split()
+        while end < len(words):
+            line = " ".join(words[start:end])
+            if len(line) >= chars_in_line:
+                line_count += 1
+                start = end
+            end += 1
+    console.update(f"{line_count} lines calculated.")
     return line_count
 
 
@@ -339,8 +344,8 @@ def layer_vert_stretch(layer, modifier, anchor="bottom", method="nearestNeighbor
 
 # Rearranges two color layers in order and applies mask
 def wubrg_layer_sort(color_pair, layers):
-    top = get_layer(color_pair[0], layers)
-    bottom = get_layer(color_pair[1], layers)
+    top = get_layer(color_pair[-2], layers)
+    bottom = get_layer(color_pair[-1], layers)
     top.moveBefore(bottom)
     app.activeDocument.activeLayer = top
     psd.enable_active_layer_mask()
@@ -370,20 +375,17 @@ def select_layer(layer, type=None):
 
 # Get width and height of paragraph text box
 def get_text_bounding_box(layer, text_width=None, text_height=None):
-    if app.preferences.pointSize == 1:
-        pref_scale = 72
-    else:
-        pref_scale = 72.27
-    doc_res = app.activeDocument.resolution
-    multiplier = (doc_res / pref_scale) ** 2
+    pref_scale = 72 if app.preferences.pointSize == 1 else 72.27
+    scale = app.activeDocument.resolution / pref_scale
+    multiplier = scale ** 2
     if text_width is None:
         text_width = layer.textItem.width * multiplier
     else:
-        layer.textItem.width = (text_width * doc_res) / (pref_scale * multiplier)
+        layer.textItem.width = text_width / scale
     if text_height is None:
         text_height = layer.textItem.height * multiplier
     else:
-        layer.textItem.height = (text_height * doc_res) / (pref_scale * multiplier)
+        layer.textItem.height = text_height / scale
     return [text_width, text_height]
 
 
@@ -454,23 +456,34 @@ def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
 def select_nonblank_pixels(layer, style="setd"):
     """
     Returns a Selection around any non-blank pixels in target ArtLayer.
+    @param layer: Layer to target for selection.
     @param style str: Defaults to new selection.
         "setd": Creates new selection.
-        "AddT": Adds to existing selection.
-        "SbtF": Subtracts from existing selection.
-        "IntW": Intersects with existing selection.
+        "Add ": Adds to existing selection.
+        "Sbtr": Subtracts from existing selection.
+        "Intr": Intersects with existing selection.
     """
     select = cid(style)
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     dsc = ps.ActionDescriptor()
-    ref1 = ps.ActionReference()
-    ref2 = ps.ActionReference()
-    chan = sid("channel")
-    ref1.putProperty(chan, sid("selection"))
-    dsc.putReference(sid("null"), ref1)
-    ref2.putEnumerated(chan, chan, sid("transparencyEnum"))
-    dsc.putReference(sid("to"), ref2)
+    ref_selection = ps.ActionReference()
+    ref_trans_enum = ps.ActionReference()
+    chan = cid("Chnl")
+    ref_selection.putProperty(chan, cid("fsel"))
+    ref_trans_enum.putEnumerated(chan, chan, cid("Trsp"))
+    if style == "setd":
+        dsc.putReference(cid("null"), ref_selection)
+        dsc.putReference(cid("T   "), ref_trans_enum)
+    else:
+        if style == "Add ":
+            point = cid("T   ")
+        elif style == "Sbtr":
+            point = cid("From")
+        elif style == "Intr":
+            point = cid("With")
+        dsc.putReference(point, ref_selection)
+        dsc.putReference(cid("null"), ref_trans_enum)
     app.executeAction(select, dsc, 3)
     app.activeDocument.activeLayer = old_layer
     return app.activeDocument.selection
@@ -526,38 +539,64 @@ def paste_in_place():
     app.executeAction(cid("past"), paste, 3)
 
 
-# opens a pdf at a fixed max width/height
-def pdf_open(file, size):
+def svg_open(file, size):
     """
-    * Opens a pdf scaled to (height) pixels tall
+    * Opens a SVG scaled to (height) pixels tall
     """
-    open_desc = ps.ActionDescriptor()
     sett_desc = ps.ActionDescriptor()
-    pxl = cid("#Pxl")
+    sett_desc.putUnitDouble(cid("Hght"), cid("#Pxl"), size)
+    sett_desc.putUnitDouble(cid("Rslt"), cid("#Rsl"), 800.000000)
+    sett_desc.putBoolean(cid("CnsP"), True)
+    sett_desc.putEnumerated(cid("Md  "), cid("ClrS"), cid("Grys"))
+    sett_desc.putBoolean(cid("AntA"), True)
+    
+    open_desc = ps.ActionDescriptor()
+    open_desc.putPath(cid("null"), file)
+    open_desc.putObject(cid("As  "), sid("svgFormat"), sett_desc)
+    app.executeAction(cid("Opn "), open_desc, 3)
+    return app.activeDocument
+
+
+def pdf_open(svg_path, size):
+    """
+    Converts then opens a pdf scaled to (height) pixels tall
+    """
+    pdf_name = path.splitext(path.basename(svg_path))[0]+".pdf"
+    pdf_path = path.join(path.dirname(svg_path), pdf_name)
+    print(pdf_path)
+    if path.exists(pdf_path):
+        return pdf_path
+    svg = fpdf.svg.SVGObject.from_file(svg_path)
+    print(svg.viewbox)
+    width = svg.viewbox[2] - svg.viewbox[0]
+    height = svg.viewbox[3] - svg.viewbox[1]
+    print(width, height)
+    pdf = fpdf.FPDF(unit="pt", format=(width, height))
+    pdf.add_page()
+    pdf.output(pdf_path)
+
+    sett_desc = ps.ActionDescriptor()
     sett_desc.putString(cid("Nm  "), "pdf")
     sett_desc.putEnumerated(cid("Crop"), sid("cropTo"), sid("boundingBox"))
     sett_desc.putUnitDouble(cid("Rslt"), cid("#Rsl"), 800.000000)
-    sett_desc.putEnumerated(cid("Md  "), cid("ClrS"), cid("RGBC"))
+    sett_desc.putEnumerated(cid("Md  "), cid("ClrS"), cid("Grys"))
     sett_desc.putInteger(cid("Dpth"), 8)
     sett_desc.putBoolean(cid("AntA"), True)
-    sett_desc.putUnitDouble(cid("Wdth"), pxl, size)
-    sett_desc.putUnitDouble(cid("Hght"), pxl, size)
+    sett_desc.putUnitDouble(cid("Hght"), cid("#Pxl"), size)
     sett_desc.putBoolean(cid("CnsP"), True)
     sett_desc.putBoolean(sid("suppressWarnings"), True)
     sett_desc.putBoolean(cid("Rvrs"), True)
     sett_desc.putEnumerated(cid("fsel"), sid("pdfSelection"), sid("page"))
     sett_desc.putInteger(cid("PgNm"), 1)
+    open_desc = ps.ActionDescriptor()
     open_desc.putObject(cid("As  "), cid("PDFG"), sett_desc)
-    open_desc.putPath(cid("null"), file)
-    open_desc.putInteger(cid("DocI"), 727)
+    open_desc.putPath(cid("null"), pdf_path)
     app.executeAction(cid("Opn "), open_desc, 3)
+    return app.activeDocument
 
 
 def layer_styles_visible(layer, visible):
-    if visible:
-        show_hide = cid("Shw ")
-    else:
-        show_hide = cid("Hd  ")
+    show_hide = cid("Shw ") if visible else cid("Hd  ")
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
     desc1 = ps.ActionDescriptor()
@@ -569,21 +608,30 @@ def layer_styles_visible(layer, visible):
     desc1.putList(cid("null"), list1)
     app.executeAction(show_hide, desc1, 3)
     app.activeDocument.activeLayer = old_layer
+    
 
+def zero_transform(layer, resample="bicubicAutomatic", x=0, y=0, w=100, h=100):
+    """
+    Free Transform a layer.
+    layer: The layer to be transformed.
+    resample: StringID of the resample method.
+        * bicubicAutomatic
+        * bicubicSharper
+        * bicubicSmoother
+        * bilinear
+        * nearestNeighbor
+        
+    x: Delta translate along x-axis.
+    y: Delta translate along y-axis.
+    w: Stretch percentage on width.
+    y: Stretch percentage on height.
 
-# testing to set transform to bicubic auto instead of whatever was used last
-# maybe set it up to change to nearest neighbor or something for certain resizing?
-def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
-    resample = {
-        "bicubicSharper": sid("bicubicSharper"),
-        "bicubicAutomatic": sid("bicubicAutomatic"),
-        "nearestNeighbor": cid("Nrst"),
-    }
+    """
+    style = sid(resample)
     old_tool = app.currentTool
-    app.currentTool = "moveTool"
-
     old_layer = app.activeDocument.activeLayer
     app.activeDocument.activeLayer = layer
+    app.currentTool = "moveTool"
 
     desc1 = ps.ActionDescriptor()
     desc2 = ps.ActionDescriptor()
@@ -598,10 +646,45 @@ def zero_transform(layer, i="bicubicAutomatic", x=0, y=0, w=100, h=100):
     desc1.putObject(cid("Ofst"), cid("Ofst"), desc2)
     desc1.putUnitDouble(cid("Wdth"), idPrc, w)
     desc1.putUnitDouble(cid("Hght"), idPrc, h)
-    desc1.putEnumerated(cid("Intr"), cid("Intp"), resample[i])
+    desc1.putEnumerated(cid("Intr"), cid("Intp"), style)
     app.executeAction(cid("Trnf"), desc1, 3)
 
     app.currentTool = old_tool
+    app.activeDocument.activeLayer = old_layer
+
+
+def resize_text_array(layer, range: list, y_delta=0, size=None, oldsize=None, spacer=False):
+    oldsize = oldsize if oldsize else layer.textItem.size
+    after_size = (y_delta * 0.118) + oldsize if not size else size
+    layer.textItem.contents = " " + layer.textItem.contents.strip()
+    old_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+
+    ref1 = ps.ActionReference()
+    ref1.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt"))
+
+    dsc4 = ps.ActionDescriptor()
+    dsc4.putUnitDouble(cid("Sz  "), cid("#Pnt"), after_size)
+    dsc4.putUnitDouble(sid("impliedFontSize"), cid("#Pnt"), after_size)
+    if spacer: dsc4.putDouble(cid("HrzS"), 0)
+    
+    dsc3 = ps.ActionDescriptor()
+    dsc3.putInteger(cid("From"), range[0])
+    dsc3.putInteger(cid("T   "), range[1])
+    dsc3.putObject(cid("TxtS"), cid("TxtS"), dsc4)
+
+    lst1 = ps.ActionList()
+    lst1.putObject(cid("Txtt"), dsc3)
+
+    dsc2 = ps.ActionDescriptor()
+    dsc2.putList(cid("Txtt"), lst1)
+
+    dsc1 = ps.ActionDescriptor()
+    dsc1.putReference(cid("null"), ref1)
+    dsc1.putObject(cid("T   "), cid("TxLr"), dsc2)
+
+    app.executeAction(cid("setd"), dsc1, 3)
+
     app.activeDocument.activeLayer = old_layer
 
 

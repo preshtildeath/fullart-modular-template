@@ -156,6 +156,8 @@ cython_debug/
 .gitattributes
 
 ignore
+IGNORE
+Set Symbols
 FelixVita
 Magrim
 MrTeferi
