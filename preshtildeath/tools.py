@@ -116,15 +116,20 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
     svg_path = path.join(svg_folder, f"{key}.svg")
     if not path.exists(svg_path):
         scry_svg = requests.get(svg_uri, timeout=5).text
-        # Fix path data for photoshop
-        for arc in re.findall(r"a[^TtCcLlMmZz]+", scry_svg):
-            spc = r"(,|,?\s)"
-            num = r"\d*\.?\d+"
-            astr = rf"{(num+spc)*3}[01][01]-?{num}(-|\s){num}"
-            for arc_args in re.finditer(astr, arc):
-                f = re.findall(r"\S+", arc_args.group())[3]
-                scry_svg = scry_svg.replace(f, f[0]+" "+f[1]+" "+f[2:])
-            scry_svg = re.sub(r"\s+", " ", scry_svg)
+        """
+        Fix path data for photoshop.
+        This needs a lot of massaging.
+        """
+        front = r"(\s?-?((\d+(\.\d+)?)|(\.\d+)))((,|\s)?(-?((\d+(\.\d+)?)|(\.\d+)))){2}(,|\s)+"
+        back = r"[01](,|\s)?[01](,|\s)?((,|\s)?(-?((\d+(\.\d+)?)|(\.\d+)))){2}"
+        full = rf"a({front}{back})+"
+        for arc in re.finditer(full, scry_svg):
+            for arc_args in re.finditer(front+back, arc.group()):
+                astr = arc_args.group()
+                for arg in re.finditer(front, arc_args.group()):
+                    f = arg.span()[1]+1
+                    scry_svg = scry_svg.replace(astr, astr[:f]+" "+astr[f:f+1]+" "+astr[f+1:])
+        scry_svg = re.sub(r"\s+", " ", scry_svg)
         # Save our fixed file
         with open(svg_path, "w") as svg_file:
             svg_file.write(scry_svg)
