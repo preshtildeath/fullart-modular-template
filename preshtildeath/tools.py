@@ -118,7 +118,7 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
         scry_svg = requests.get(svg_uri, timeout=5).text
         """
         Fix path data for photoshop.
-        This needs a lot of massaging.
+        This might need a lot of massaging.
         """
         front = r"(\s?-?((\d+(\.\d+)?)|(\.\d+)))((,|\s)?(-?((\d+(\.\d+)?)|(\.\d+)))){2}(,|\s)+"
         back = r"[01](,|\s)?[01](,|\s)?((,|\s)?(-?((\d+(\.\d+)?)|(\.\d+)))){2}"
@@ -152,7 +152,7 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
 
     # Note context switch back to template.
     layer = doc.paste()
-    zero_transform(layer)
+    free_transform(layer)
 
     lay_dim = psd.get_dimensions_no_effects(layer)
     ref_dim = psd.get_dimensions_no_effects(ref_layer)
@@ -170,7 +170,24 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
     doc.selection.deselect()
     layer.translate(ref_layer.bounds[2] - layer.bounds[2], 0)
 
-    fill_expansion_symbol(layer, white)
+    # Magic Wand non-contiguous outside symbol, then subtract contiguous
+    x, y = layer.bounds[0] - 50, layer.bounds[1] - 50
+    magic_wand_select(layer, x, y, "setd", 0, True, False)
+    magic_wand_select(layer, x, y, "SbtF", 0, True)
+    slct = app.activeDocument.selection
+
+    # Make a new layer and fill with stroke color
+    fill_layer = add_layer("Expansion Mask")
+    fill_layer.blendMode = ps.BlendMode.NormalBlend
+    fill_layer.visible = True
+    fill_layer.moveAfter(layer)
+    slct.fill(white)
+    slct.deselect()
+
+    # Maximum filter to keep the antialiasing normal
+    fill_layer.applyMaximum(1)
+
+    layer.link(fill_layer)
 
     # Apply rarity mask if necessary, and center it on symbol.
     if rarity != "common":
@@ -181,41 +198,23 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
         psd.align_vertical()
         psd.clear_selection()
         mask_layer.visible = True
+        layer.link(mask_layer)
 
     doc.activeLayer = prev_active_layer
     return layer
 
 
-def fill_expansion_symbol(ref, stroke_color):
-    """Give the symbol a background for open space symbols (i.e. M10)."""
-    # Magic Wand non-contiguous outside symbol, then subtract contiguous
-    x, y = ref.bounds[0] - 50, ref.bounds[1] - 50
-    magic_wand_select(ref, x, y, "setd", 0, True, False)
-    magic_wand_select(ref, x, y, "SbtF", 0, True)
-
-    # Make a new layer and fill with stroke color
-    layer = add_layer("Expansion Mask")
-    layer.blendMode = ps.BlendMode.NormalBlend
-    layer.visible = True
-    layer.moveAfter(ref)
-    app.activeDocument.selection.fill(stroke_color)
-    app.activeDocument.selection.deselect()
-
-    # Maximum filter to keep the antialiasing normal
-    layer.applyMaximum(1)
-
-
 def filename_append(file, send_path):
     """Check if a file already exists, then adds (x) if it does."""
-    file_name, extension = path.splitext(path.basename(file))  # image, .xxx
+    file_name, extension = path.splitext(path.basename(file))  # imagename, .xxx
     test_name = path.join(send_path, f"{file_name}{extension}")
-    if path.exists(test_name):  # location/image.xxx
+    if path.exists(test_name):  # location/imagename.xxx
         multi = 1
         test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
-        while path.exists(test_name):  # location/image (1).xxx
+        while path.exists(test_name):  # location/imagename (1).xxx
             multi += 1
             test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
-    return test_name  #  returns "location/image.xxx" or "location/image (x).xxx"
+    return test_name  #  returns "location/imagename.xxx" or "location/imagename (x).xxx"
 
 
 def dirty_text_scale(input_text, chars_in_line):
@@ -232,18 +231,15 @@ def dirty_text_scale(input_text, chars_in_line):
                 line_count += 1
                 start = end
             end += 1
-    console.update(f"{line_count} oracle lines calculated.")
     return line_count
 
 
 def layer_vert_stretch(layer, modifier, anchor="bottom", method="nearestNeighbor"):
     """Stretches a layer by (-modifier) pixels."""
     transform_delta = {"top": 0, "center": modifier / 2, "bottom": modifier}
-    # anchor_set = { 'top': 1, 'center': 4, 'bottom': 7 }
     height = layer.bounds[3] - layer.bounds[1]
     h_perc = (height - modifier) / height * 100
-    zero_transform(layer, method, 0, transform_delta[anchor], 100, h_perc)
-    # layer.resize(100, h_perc, anchor_set[anchor])
+    free_transform(layer, 0, transform_delta[anchor], 100, h_perc, method)
 
 
 def wubrg_layer_sort(color_pair, layers):
@@ -251,42 +247,44 @@ def wubrg_layer_sort(color_pair, layers):
     top = get_layer(color_pair[-2], layers)
     bottom = get_layer(color_pair[-1], layers)
     top.moveBefore(bottom)
-    app.activeDocument.activeLayer = top
-    psd.enable_active_layer_mask()
+    psd.set_layer_mask(top)
     top.visible = True
     bottom.visible = True
 
 
 def add_select_layer(layer):
     """"Adds to current Selection using the boundary of a layer."""
-    select_layer(layer, ps.SelectionType.ExtendSelection)
+    return select_layer(layer, ps.SelectionType.ExtendSelection)
 
 
 def select_layer(layer, type=None):
     """Creates a Selection using the boundary of a layer."""
-    if type is None:
-        type = ps.SelectionType.ReplaceSelection
-    left, top, right, bottom = layer.bounds
+    type = ps.SelectionType.ReplaceSelection if not type else None
+    try:
+        left, top, right, bottom = layer.bounds
+    except Exception as e:
+        return e
 
-    app.activeDocument.selection.select(
+    return app.activeDocument.selection.select(
         [[left, top], [right, top], [right, bottom], [left, bottom]], type
     )
 
 
-def get_text_bounding_box(layer, text_width=None, text_height=None):
+def get_text_bounding_box(layer, width=None, height=None):
     """Get width and height of paragraph text box."""
     pref_scale = 72 if app.preferences.pointSize == 1 else 72.27
     scale = app.activeDocument.resolution / pref_scale
     multiplier = scale ** 2
-    if text_width is None:
-        text_width = layer.textItem.width * multiplier
+    layer_text = layer.textItem
+    if not width:
+        width = layer_text.width * multiplier
     else:
-        layer.textItem.width = text_width / scale
-    if text_height is None:
-        text_height = layer.textItem.height * multiplier
+        layer_text.width = width / scale
+    if not height:
+        height = layer_text.height * multiplier
     else:
-        layer.textItem.height = text_height / scale
-    return [text_width, text_height]
+        layer_text.height = height / scale
+    return [width, height]
 
 
 def layer_mask_select(layer):
@@ -350,28 +348,25 @@ def select_nonblank_pixels(layer, style="setd"):
         "Intr": Intersects with existing selection.
     """
     select = cid(style)
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
+    # old_layer = app.activeDocument.activeLayer
+    # app.activeDocument.activeLayer = layer
     dsc = ps.ActionDescriptor()
     ref_selection = ps.ActionReference()
     ref_trans_enum = ps.ActionReference()
     chan = cid("Chnl")
     ref_selection.putProperty(chan, cid("fsel"))
     ref_trans_enum.putEnumerated(chan, chan, cid("Trsp"))
+    ref_trans_enum.putIdentifier(cid("Lyr "), int(layer.id))
     if style == "setd":
         dsc.putReference(cid("null"), ref_selection)
         dsc.putReference(cid("T   "), ref_trans_enum)
     else:
-        if style == "Add ":
-            point = cid("T   ")
-        elif style == "Sbtr":
-            point = cid("From")
-        elif style == "Intr":
-            point = cid("With")
+        prep = {"Add ": "T   ", "Sbtr": "From", "Intr": "With"}
+        point = cid(prep[style])
         dsc.putReference(point, ref_selection)
         dsc.putReference(cid("null"), ref_trans_enum)
     app.executeAction(select, dsc, 3)
-    app.activeDocument.activeLayer = old_layer
+    # app.activeDocument.activeLayer = old_layer
     return app.activeDocument.selection
 
 
@@ -412,7 +407,7 @@ def add_layer(name=None):
     desc.putInteger(cid("LyrI"), get_layer_index(layer.id))
     app.executeAction(cid("Mk  "), desc, 3)
     layer = app.activeDocument.activeLayer
-    if name is not None:
+    if not name:
         layer.name = name
     return layer
 
@@ -425,7 +420,7 @@ def paste_in_place():
     app.executeAction(cid("past"), paste, 3)
 
 
-def svg_open(file: os.PathLike, height: int):
+def svg_open(file: str, height: int):
     """
     Opens a SVG scaled to (height) pixels tall
     """
@@ -443,43 +438,36 @@ def svg_open(file: os.PathLike, height: int):
     return app.activeDocument
 
 
-def layer_styles_visible(layer, visible):
+def layer_styles_visible(layer, visible=True):
     show_hide = cid("Shw ") if visible else cid("Hd  ")
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
+    # old_layer = app.activeDocument.activeLayer
+    # app.activeDocument.activeLayer = layer
     ref1 = ps.ActionReference()
-    ref1.putClass(cid("Lefx"))
-    ref1.putEnumerated(cid("Lyr "), cid("Ordn"), cid("Trgt"))
     list1 = ps.ActionList()
-    list1.putReference(ref1)
     desc1 = ps.ActionDescriptor()
+    ref1.putClass(cid("Lefx"))
+    ref1.putIdentifier(cid("Lyr "), int(layer.id))
+    list1.putReference(ref1)
     desc1.putList(cid("null"), list1)
     app.executeAction(show_hide, desc1, 3)
-    app.activeDocument.activeLayer = old_layer
+    # app.activeDocument.activeLayer = old_layer
     
 
-def zero_transform(layer, resample="bicubicAutomatic", x=0, y=0, w=100, h=100):
+def free_transform(layer, x=0, y=0, w=100, h=100, resample="bicubicAutomatic"):
     """
     Free Transform a layer.
     layer: The layer to be transformed.
-    resample: StringID of the resample method.
-        * bicubicAutomatic
-        * bicubicSharper
-        * bicubicSmoother
-        * bilinear
-        * nearestNeighbor
-        
     x: Delta translate along x-axis.
     y: Delta translate along y-axis.
     w: Stretch percentage on width.
-    y: Stretch percentage on height.
-
+    h: Stretch percentage on height.
+    resample: StringID of the resample method.
+        (bicubicAutomatic, bicubicSharper, bicubicSmoother, bilinear, nearestNeighbor)
     """
     style = sid(resample)
-    old_tool = app.currentTool
     old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
-    app.currentTool = "moveTool"
+    if old_layer != layer:
+        app.activeDocument.activeLayer = layer
 
     desc1 = ps.ActionDescriptor()
     desc2 = ps.ActionDescriptor()
@@ -495,115 +483,92 @@ def zero_transform(layer, resample="bicubicAutomatic", x=0, y=0, w=100, h=100):
     desc1.putEnumerated(cid("Intr"), cid("Intp"), style)
     app.executeAction(cid("Trnf"), desc1, 3)
 
-    app.currentTool = old_tool
-    app.activeDocument.activeLayer = old_layer
+    if old_layer != layer:
+        app.activeDocument.activeLayer = old_layer
+
 
 def creature_text_path_shift(layer, modifier):
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
-    top = layer.textItem.position[1]
-    new_top = round(top+modifier)
+    doc = app.activeDocument
+    old_tool = app.currentTool
+    old_layer = doc.activeLayer
+    app.currentTool = "directSelectTool"
+    doc.activeLayer = layer
+    top = round(layer.textItem.position[1])
+    left_side = round(layer.textItem.position[0])
+    text_dims = psd.get_layer_dimensions(layer)
+    new_top = top+modifier
+    path_points = [p.subPathItems[0].pathPoints for p in doc.pathItems if p.name == f"{layer.name} Type Path"][0]
 
-    desc347 = ps.ActionDescriptor()
+    # ref50.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt") )
+    # desc347.putReference(cid("null"), ref50)
     ref50 = ps.ActionReference()
-    ref50.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt") )
+    ref50.putIdentifier(cid("Lyr "), layer.id)
+    desc347 = ps.ActionDescriptor()
     desc347.putReference(cid("null"), ref50)
-    desc348 = ps.ActionDescriptor()
-    list18 = ps.ActionList()
-    desc352 = ps.ActionDescriptor()
-    desc353 = ps.ActionDescriptor()
-    list19 = ps.ActionList()
     desc354 = ps.ActionDescriptor()
     desc354.putEnumerated(sid("shapeOperation"), sid("shapeOperation"), sid("xor") )
-    list20 = ps.ActionList()
     desc355 = ps.ActionDescriptor()
     desc355.putBoolean(cid("Clsp"), True)
     list21 = ps.ActionList()
 
-    desc356 = ps.ActionDescriptor()
-    desc357 = ps.ActionDescriptor()
-    desc357.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 269.000000)
-    desc357.putUnitDouble(cid("Vrtc"), cid("#Pxl"), new_top)
-    desc356.putObject(cid("Anch"), cid("Pnt "), desc357)
-    list21.putObject(cid("Pthp"), desc356)
+    for point in path_points:
+        print(point.anchor, point.kind, point.leftDirection, point.rightDirection)
+        top_anchor = new_top if round(point.anchor[1]) == top else point.anchor[1]
+        coord = ps.ActionDescriptor()
+        coord.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.anchor[0])
+        coord.putUnitDouble(cid("Vrtc"), cid("#Pxl"), top_anchor)
+        desc = ps.ActionDescriptor()
+        desc.putObject(cid("Anch"), cid("Pnt "), coord)
 
-    desc358 = ps.ActionDescriptor()
-    desc359 = ps.ActionDescriptor()
-    desc359.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1907)
-    desc359.putUnitDouble(cid("Vrtc"), cid("#Pxl"), new_top)
-    desc358.putObject(cid("Anch"), cid("Pnt "), desc359)
-    list21.putObject(cid("Pthp"), desc358)
-
-    desc360 = ps.ActionDescriptor()
-    desc361 = ps.ActionDescriptor()
-    desc361.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1907)
-    desc361.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2595)
-    desc360.putObject(cid("Anch"), cid("Pnt "), desc361)
-    list21.putObject(cid("Pthp"), desc360)
-
-    desc362 = ps.ActionDescriptor()
-    desc363 = ps.ActionDescriptor()
-    desc363.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1648)
-    desc363.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2595)
-    desc362.putObject(cid("Anch"), cid("Pnt "), desc363)
-    desc364 = ps.ActionDescriptor()
-    desc364.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1648)
-    desc364.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2595)
-    desc362.putObject(cid("Fwd "), cid("Pnt "), desc364)
-    desc365 = ps.ActionDescriptor()
-    desc365.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1907)
-    desc365.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2595)
-    desc362.putObject(cid("Bwd "), cid("Pnt "), desc365)
-    desc362.putBoolean(cid("Smoo"), False)
-    list21.putObject(cid("Pthp"), desc362)
-
-    desc366 = ps.ActionDescriptor()
-    desc367 = ps.ActionDescriptor()
-    desc367.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1618)
-    desc367.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2697.5)
-    desc366.putObject(cid("Anch"), cid("Pnt "), desc367)
-    desc368 = ps.ActionDescriptor()
-    desc368.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1618)
-    desc368.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2780)
-    desc366.putObject(cid("Fwd "), cid("Pnt "), desc368)
-    desc369 = ps.ActionDescriptor()
-    desc369.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1618)
-    desc369.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 2615)
-    desc366.putObject(cid("Bwd "), cid("Pnt "), desc369)
-    desc366.putBoolean(cid("Smoo"), True)
-    list21.putObject(cid("Pthp"), desc366)
-    
-    desc370 = ps.ActionDescriptor()
-    desc371 = ps.ActionDescriptor()
-    desc371.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 1618)
-    desc371.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 3338)
-    desc370.putObject(cid("Anch"), cid("Pnt "), desc371)
-    list21.putObject(cid("Pthp"), desc370)
-
-    desc372 = ps.ActionDescriptor()
-    desc373 = ps.ActionDescriptor()
-    desc373.putUnitDouble(cid("Hrzn"), cid("#Pxl"), 269)
-    desc373.putUnitDouble(cid("Vrtc"), cid("#Pxl"), 3338)
-    desc372.putObject(cid("Anch"), cid("Pnt "), desc373)
-    list21.putObject(cid("Pthp"), desc372)
+        if point.kind == 1: # ps.PointKind.SmoothPoint
+            left = ps.ActionDescriptor()
+            left.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.leftDirection[0])
+            left.putUnitDouble(cid("Vrtc"), cid("#Pxl"), point.leftDirection[1])
+            desc.putObject(cid("Fwd "), cid("Pnt "), left)
+            right = ps.ActionDescriptor()
+            right.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.rightDirection[0])
+            right.putUnitDouble(cid("Vrtc"), cid("#Pxl"), point.rightDirection[1])
+            desc.putObject(cid("Bwd "), cid("Pnt "), right)
+            desc.putBoolean(cid("Smoo"), False)
+        list21.putObject(cid("Pthp"), desc)
 
     desc355.putList(cid("Pts "), list21)
+    list20 = ps.ActionList()
     list20.putObject(cid("Sbpl"), desc355)
     desc354.putList(cid("SbpL"), list20)
+    list19 = ps.ActionList()
     list19.putObject(cid("PaCm"), desc354)
+    desc353 = ps.ActionDescriptor()
     desc353.putList(sid("pathComponents"), list19)
+    desc352 = ps.ActionDescriptor()
     desc352.putObject(cid("Path"), sid("pathClass"), desc353)
     desc352.putEnumerated(cid("TEXT"), cid("TEXT"), sid("box") )
+
     desc374 = ps.ActionDescriptor()
-    desc374.putDouble(sid("tx"), -269)
-    desc374.putDouble(sid("ty"), -new_top)
+    desc374.putDouble(sid("xx"), 1)
+    desc374.putDouble(sid("xy"), 0)
+    desc374.putDouble(sid("yx"), 0)
+    desc374.putDouble(sid("yy"), 1)
+    desc374.putDouble(sid("tx"), 0-left_side)
+    desc374.putDouble(sid("ty"), 0-new_top)
     desc352.putObject(cid("Trnf"), cid("Trnf"), desc374)
+
+    print(new_top, left_side, top+text_dims["height"], left_side+text_dims["width"])
+    desc375 = ps.ActionDescriptor()
+    desc375.putDouble(cid("Top "), new_top)
+    desc375.putDouble(cid("Left"), left_side)
+    desc375.putDouble(cid("Btom"), top+text_dims["height"])
+    desc375.putDouble(cid("Rght"), left_side+text_dims["width"])
+    desc352.putObject(sid("bounds"), cid("Rctn"), desc375)
+
+    list18 = ps.ActionList()
     list18.putObject(sid("textShape"), desc352)
+    desc348 = ps.ActionDescriptor()
     desc348.putList(sid("textShape"), list18)
     desc347.putObject(cid("T   "), cid("TxLr"), desc348)
     app.executeAction(cid("setd"), desc347, ps.DialogModes.DisplayNoDialogs)
-    layer.translate(0, modifier)
 
+    app.currentTool = old_tool
     app.activeDocument.activeLayer = old_layer
 
 
@@ -616,6 +581,7 @@ class MyConfig(Config):
         self.move_art = self.file.getboolean("GENERAL", "Move.Art")
         self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
         self.hollow_mana = self.file.getboolean("FULLART", "Hollow.Mana")
+        self.borderless = self.file.getboolean("FULLART", "Borderless")
         self.crt_filter = self.file.getboolean("PIXEL", "CRT.Filter")
         self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
         self.symbol_bg = self.file.getboolean("PIXEL", "Symbol.BG")
@@ -624,6 +590,7 @@ class MyConfig(Config):
         self.file.set("GENERAL", "Move.Art", str(self.move_art))
         self.file.set("FULLART", "Side.Pinelines", str(self.side_pins))
         self.file.set("FULLART", "Hollow.Mana", str(self.hollow_mana))
+        self.file.set("FULLART", "Borderless", str(self.borderless))
         self.file.set("PIXEL", "CRT.Filter", str(self.crt_filter))
         self.file.set("PIXEL", "Invert.Mana", str(self.invert_mana))
         self.file.set("PIXEL", "Symbol.BG", str(self.symbol_bg))
