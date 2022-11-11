@@ -8,39 +8,45 @@ import os.path as path
 import re
 
 import photoshop.api as ps
-import proxyshop.gui as gui
 import proxyshop.helpers as psd
 import requests
 from proxyshop.settings import Config
 
-console = gui.console_handler
 app = ps.Application()
 cid = app.charIDToTypeID
 sid = app.stringIDToTypeID
 
 
-def get_layer(name: str, *group):
+def get_layer(name: str, *args):
     """
     Retrieve layer object.
     """
     layer_set = app.activeDocument
-    if group:
-        layer_set = get_layer_set(*group)
+    if args:
+        layer_set = get_layer_set(*args)
     if isinstance(name, str):
         return layer_set.artLayers.getByName(name)
     return name
 
 
-def get_layer_set(name: str, *group):
+def get_layer_set(name: str, *args):
     """
     Retrieve layer group object.
     """
     layer_set = app.activeDocument
-    if group:
-        layer_set = get_layer_set(*group)
+    if args:
+        layer_set = get_layer_set(*args)
     if isinstance(name, str):
         return layer_set.layerSets.getByName(name)
     return name
+
+
+def selection_exists(selection):
+    try:
+        selection.bounds
+        return True
+    except:
+        return False
 
 
 def text_layer_bounds(layer) -> list:
@@ -65,6 +71,70 @@ def bounds_to_dimensions(bounds) -> dict:
         "width": bounds[2] - bounds[0],
         "height": bounds[3] - bounds[1],
     }
+
+
+def move_to(layer, x, y):
+    layer.translate(x-layer.bounds[0], y-layer.bounds[1])
+
+
+def move_art(layout, set):
+
+    # Set up paths and determine file extension
+    work_path = os.path.dirname(layout.file)
+    new_name = f"{layout.name} ({layout.artist}) [{set}]"
+    ext = os.path.splitext(os.path.basename(layout.file))[1]
+    layout_type = type(layout).__name__
+
+    if "finished" not in work_path:
+        fin_path = os.path.join(work_path, "finished")
+        if layout_type != "NormalLayout":
+            fin_path = os.path.join(fin_path, layout_type)
+    else:
+        fin_path = work_path
+
+    if not os.path.exists(fin_path):
+        os.mkdir(fin_path)
+
+    new_file = os.path.join(fin_path, f"{new_name}{ext}")
+    try:
+        if new_file != layout.file:
+            os.replace(layout.file, filename_append(new_file, fin_path))
+        return True
+    except Exception as e:
+        return e
+
+
+def frame(layer, ref_layer, resize=True, h=True, v=True, resample="bicubicAutomatic"):
+    w, h = layer.bounds[2]-layer.bounds[0], layer.bounds[3]-layer.bounds[1]
+    r = 1 * max(
+        (ref_layer.bounds[2]-ref_layer.bounds[0])/w,
+        (ref_layer.bounds[3]-ref_layer.bounds[1])/h
+    ) if resize else 1
+    ref_center = [
+        (ref_layer.bounds[2]+ref_layer.bounds[0])/2,
+        (ref_layer.bounds[3]+ref_layer.bounds[1])/2
+        ]
+    layer_offset = [(w*r)/2, (h*r)/2]
+    x = ref_center[0]-layer_offset[0]-layer.bounds[0] if h else 0
+    y = ref_center[1]-layer_offset[1]-layer.bounds[1] if v else 0
+    free_transform(layer, x, y, w=r*100, h=r*100, resample=resample)
+
+
+def remove_background(layer):
+    old_layer = app.activeDocument.activeLayer
+    app.activeDocument.activeLayer = layer
+    desc = ps.ActionDescriptor()
+    desc.putBoolean(sid("sampleAllLayers"), False)
+    app.executeAction(sid("autoCutout"), desc, ps.DialogModes.DisplayNoDialogs)
+    desc1 = ps.ActionDescriptor()
+    chnl = cid("Chnl")
+    desc1.putClass(cid("Nw  "), chnl)
+    ref1 = ps.ActionReference()
+    ref1.putEnumerated(chnl, chnl, cid("Msk "))
+    desc1.putReference(cid("At  "), ref1)
+    desc1.putEnumerated(cid("Usng"), cid("UsrM"), cid("RvlS"))
+    app.executeAction(cid("Mk  "), desc1, ps.DialogModes.DisplayNoDialogs)
+    app.activeDocument.activeLayer = old_layer
 
 
 def rgbcolor(r: int, g: int, b: int):
@@ -143,26 +213,17 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
             .replace("]}", "]\n}")
         )
 
-    # Open our SVG at twice the size of our reference layer height, just to be safe.
-    max_size = (ref_layer.bounds[2] - ref_layer.bounds[0]) * 2
-    set_doc = svg_open(svg_path, max_size)
-    set_doc.selection.selectAll()
-    set_doc.selection.copy()
-    set_doc.close(ps.SaveOptions.DoNotSaveChanges)
+    max_size = ref_layer.bounds[3] - ref_layer.bounds[1]
 
-    # Note context switch back to template.
-    layer = doc.paste()
-    free_transform(layer)
-
-    lay_dim = psd.get_dimensions_no_effects(layer)
-    ref_dim = psd.get_dimensions_no_effects(ref_layer)
-
-    # Determine how much to scale the layer by such that it fits into the reference layer's bounds.
-    scale_factor = 100 * min(
-        ref_dim["width"] / lay_dim["width"],
-        ref_dim["height"] / lay_dim["height"]
-    )
-    layer.resize(scale_factor, scale_factor)
+    svglayer = place_image(layer, svg_path, 10)
+    percent = max_size/(svglayer.bounds[3]-svglayer.bounds[1]) * 100
+    if percent > 100:
+        old_layer = svglayer
+        svglayer = place_image(svglayer, svg_path, p=percent)
+        percent = max_size/(svglayer.bounds[3]-svglayer.bounds[1]) * 100
+        old_layer.delete()
+    svglayer.resize(percent, percent)
+    app.executeAction(cid("Mrg2"), ps.ActionDescriptor(), ps.DialogModes.DisplayNoDialogs)
 
     # Align verticle center, horizontal right.
     psd.select_layer_pixels(ref_layer)
@@ -177,7 +238,7 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
     slct = app.activeDocument.selection
 
     # Make a new layer and fill with stroke color
-    fill_layer = add_layer("Expansion Mask")
+    fill_layer = add_layer(name="Expansion Mask")
     fill_layer.blendMode = ps.BlendMode.NormalBlend
     fill_layer.visible = True
     fill_layer.moveAfter(layer)
@@ -332,7 +393,7 @@ def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
     desc1.putBoolean(cid("AntA"), a)  # Anti-aliasing
     desc1.putBoolean(cid("Cntg"), c)  # Contiguous
     desc1.putBoolean(cid("Mrgd"), s)  # Sample all layers
-    app.executeAction(select, desc1, 3)
+    app.executeAction(select, desc1, ps.DialogModes.DisplayNoDialogs)
     app.activeDocument.activeLayer = old_layer
     return app.activeDocument.selection
 
@@ -398,14 +459,14 @@ def move_inside(fromlayer, layerset):
         return err
 
 
-def add_layer(name=None):
-    layer = app.activeDocument.activeLayer
+def add_layer(layer=None, name=None):
+    layer = app.activeDocument.activeLayer if not layer else layer
     desc = ps.ActionDescriptor()
     ref = ps.ActionReference()
     ref.putClass(cid("Lyr "))
     desc.putReference(cid("null"), ref)
     desc.putInteger(cid("LyrI"), get_layer_index(layer.id))
-    app.executeAction(cid("Mk  "), desc, 3)
+    app.executeAction(cid("Mk  "), desc, ps.DialogModes.DisplayNoDialogs)
     layer = app.activeDocument.activeLayer
     if not name:
         layer.name = name
@@ -469,26 +530,37 @@ def free_transform(layer, x=0, y=0, w=100, h=100, resample="bicubicAutomatic"):
     if old_layer != layer:
         app.activeDocument.activeLayer = layer
 
-    desc1 = ps.ActionDescriptor()
-    desc2 = ps.ActionDescriptor()
     ref1 = ps.ActionReference()
     ref1.putEnumerated(cid("Lyr "), cid("Ordn"), cid("Trgt"))
+    desc1 = ps.ActionDescriptor()
     desc1.putReference(cid("null"), ref1)
     desc1.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcs0"))
+    desc2 = ps.ActionDescriptor()
     desc2.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
     desc2.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
     desc1.putObject(cid("Ofst"), cid("Ofst"), desc2)
     desc1.putUnitDouble(cid("Wdth"), cid("#Prc"), w)
     desc1.putUnitDouble(cid("Hght"), cid("#Prc"), h)
     desc1.putEnumerated(cid("Intr"), cid("Intp"), style)
-    app.executeAction(cid("Trnf"), desc1, 3)
+    app.executeAction(cid("Trnf"), desc1, ps.DialogModes.DisplayNoDialogs)
 
     if old_layer != layer:
         app.activeDocument.activeLayer = old_layer
 
 
 def creature_text_path_shift(layer, modifier):
+    return text_path_shift(layer, modifier, "top")
+
+
+def pw_ability_shift(layer):
+    layer = text_path_shift(layer, 100, "left")
+    layer.translate(100, 7)
+    return layer
+
+
+def text_path_shift(layer, modifier, d="top"):
     doc = app.activeDocument
+    modifier = min(modifier, 900)
     old_tool = app.currentTool
     old_layer = doc.activeLayer
     app.currentTool = "directSelectTool"
@@ -496,7 +568,8 @@ def creature_text_path_shift(layer, modifier):
     top = round(layer.textItem.position[1])
     left_side = round(layer.textItem.position[0])
     text_dims = psd.get_layer_dimensions(layer)
-    new_top = top+modifier
+    new_top = top+modifier if d == "top" else top
+    new_left = left_side+modifier if d == "left" else left_side
     path_points = [p.subPathItems[0].pathPoints for p in doc.pathItems if p.name == f"{layer.name} Type Path"][0]
 
     # ref50.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt") )
@@ -512,15 +585,15 @@ def creature_text_path_shift(layer, modifier):
     list21 = ps.ActionList()
 
     for point in path_points:
-        print(point.anchor, point.kind, point.leftDirection, point.rightDirection)
-        top_anchor = new_top if round(point.anchor[1]) == top else point.anchor[1]
+        anc_x = new_left if round(point.anchor[0]) == left_side else round(point.anchor[0])
+        anc_y = new_top if round(point.anchor[1]) == top else round(point.anchor[1])
         coord = ps.ActionDescriptor()
-        coord.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.anchor[0])
-        coord.putUnitDouble(cid("Vrtc"), cid("#Pxl"), top_anchor)
+        coord.putUnitDouble(cid("Hrzn"), cid("#Pxl"), anc_x)
+        coord.putUnitDouble(cid("Vrtc"), cid("#Pxl"), anc_y)
         desc = ps.ActionDescriptor()
         desc.putObject(cid("Anch"), cid("Pnt "), coord)
 
-        if point.kind == 1: # ps.PointKind.SmoothPoint
+        if point.kind == ps.PointKind.SmoothPoint:
             left = ps.ActionDescriptor()
             left.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.leftDirection[0])
             left.putUnitDouble(cid("Vrtc"), cid("#Pxl"), point.leftDirection[1])
@@ -549,14 +622,13 @@ def creature_text_path_shift(layer, modifier):
     desc374.putDouble(sid("xy"), 0)
     desc374.putDouble(sid("yx"), 0)
     desc374.putDouble(sid("yy"), 1)
-    desc374.putDouble(sid("tx"), 0-left_side)
+    desc374.putDouble(sid("tx"), 0-new_left)
     desc374.putDouble(sid("ty"), 0-new_top)
     desc352.putObject(cid("Trnf"), cid("Trnf"), desc374)
 
-    print(new_top, left_side, top+text_dims["height"], left_side+text_dims["width"])
     desc375 = ps.ActionDescriptor()
     desc375.putDouble(cid("Top "), new_top)
-    desc375.putDouble(cid("Left"), left_side)
+    desc375.putDouble(cid("Left"), new_left)
     desc375.putDouble(cid("Btom"), top+text_dims["height"])
     desc375.putDouble(cid("Rght"), left_side+text_dims["width"])
     desc352.putObject(sid("bounds"), cid("Rctn"), desc375)
@@ -571,6 +643,39 @@ def creature_text_path_shift(layer, modifier):
     app.currentTool = old_tool
     app.activeDocument.activeLayer = old_layer
 
+    return layer
+
+
+def fit_text(text_layer, ref_layer, padding=False):
+    if not padding: padding = text_layer.textItem.position[0]-ref_layer.bounds[0]
+    height = (ref_layer.bounds[3]-ref_layer.bounds[1]) - padding*2
+    right = ref_layer.bounds[2]-padding
+    txt = text_layer.textItem
+    while text_layer.bounds[3]-text_layer.bounds[1] > height or text_layer.bounds[2] > right:
+        size = txt.size-0.2
+        txt.size = size
+        txt.leading = size
+    return True
+
+
+def place_image(layer, file, p=None):
+    if [i > 0 for i in layer.bounds] == [True]*4 and path.splitext(file)[1] in [".png", ".gif", ".jpg", ".jpeg"]:
+        layer = add_layer(layer)
+    desc1 = ps.ActionDescriptor()
+    desc1.putInteger(cid("Idnt"), layer.id)
+    desc1.putPath(cid("null"), file)
+    desc1.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcsa"))
+    desc2 = ps.ActionDescriptor()
+    desc2.putUnitDouble( cid("Hrzn"), cid("Pxl "), 0)
+    desc2.putUnitDouble( cid("Vrtc"), cid("Pxl "), 0)
+    desc1.putObject(cid("Ofst"), cid("Ofst"), desc2)
+    if p:
+        desc1.putUnitDouble(cid("Hght"), cid("#Prc"), p)
+        desc1.putUnitDouble(cid("Wdth"), cid("#Prc"), p)
+    app.executeAction(cid("Plc "), desc1, ps.DialogModes.DisplayNoDialogs)
+
+    return app.activeDocument.activeLayer
+
 
 cfg_path = path.join(path.dirname(__file__), "config.ini")
 class MyConfig(Config):
@@ -579,8 +684,9 @@ class MyConfig(Config):
 
     def load(self):
         self.move_art = self.file.getboolean("GENERAL", "Move.Art")
+        self.blank_creature_copy = self.file.getboolean("GENERAL", "Blank.Creature.Copy")
+        self.hollow_mana = self.file.getboolean("GENERAL", "Hollow.Mana")
         self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
-        self.hollow_mana = self.file.getboolean("FULLART", "Hollow.Mana")
         self.borderless = self.file.getboolean("FULLART", "Borderless")
         self.crt_filter = self.file.getboolean("PIXEL", "CRT.Filter")
         self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
@@ -588,8 +694,9 @@ class MyConfig(Config):
 
     def update(self):
         self.file.set("GENERAL", "Move.Art", str(self.move_art))
+        self.file.set("GENERAL", "Blank.Creature.Copy", str(self.blank_creature_copy))
+        self.file.set("GENERAL", "Hollow.Mana", str(self.hollow_mana))
         self.file.set("FULLART", "Side.Pinelines", str(self.side_pins))
-        self.file.set("FULLART", "Hollow.Mana", str(self.hollow_mana))
         self.file.set("FULLART", "Borderless", str(self.borderless))
         self.file.set("PIXEL", "CRT.Filter", str(self.crt_filter))
         self.file.set("PIXEL", "Invert.Mana", str(self.invert_mana))

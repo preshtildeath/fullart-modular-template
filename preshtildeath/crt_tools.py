@@ -185,30 +185,35 @@ def crt_filter():
 
     # Set up some files
     doc = app.activeDocument
-    ass_path = "assets"
+    ass_path = os.path.join(os.path.dirname(__file__), "assets")
     crt_file = os.path.join(ass_path, "crt9x9.png")
     rgb_file = os.path.join(ass_path, "rgb18x9.png")
     r_file = os.path.join(ass_path, "r18x9.png")
     g_file = os.path.join(ass_path, "g18x9.png")
     b_file = os.path.join(ass_path, "b18x9.png")
     scan_file = os.path.join(ass_path, "scan1x9.png")
-    base_layer = app.activeDocument.artLayers[0]
+    base_layer = doc.artLayers[0]
+    filters = doc.layerSets.add()
+    filters.name = "Filters"
 
     # Extend borders for later spherize
     original_w = doc.width
     original_h = doc.height
-    diag = (original_w**2 + original_h**2) ** 0.5
-    delta = sum(divmod(diag - min(original_w, original_h), 9))  # Was 603
+    hw, hh = original_w/2, original_h/2
+    rad = (hw**2 + hh**2) ** 0.5
+    rad -= rad%9
     post_delta = doc.resolution / 8
-    l, t, r, b = -delta, -delta, original_w + delta, original_h + delta
-    app.activeDocument.crop([l, t, r, b])
-    filters = app.activeDocument.layerSets.add()
-    filters.name = "Filters"
+    l, t, r, b = hw-rad, hh-rad, hw+rad, hh+rad
+    l += l%9
+    t += t%9
+    r -= r%9
+    b -= b%9
+    doc.crop([l, t, r, b])
 
     # CRT scanline filtered layer
     dupe = base_layer.duplicate()
     dupe.move(filters, ps.ElementPlacement.PlaceInside)
-    crtlayer = app.activeDocument.artLayers.add()
+    crtlayer = doc.artLayers.add()
     crtlayer.move(filters, ps.ElementPlacement.PlaceInside)
     pattern_fill(crtlayer, crt_file, 10, 10)
     crtlayer.applyMotionBlur(0, 4)
@@ -223,7 +228,7 @@ def crt_filter():
     dupe = crtlayer.duplicate()
     chroma_shift(dupe, 1)
     dupe.move(crtlayer, ps.ElementPlacement.PlaceBefore)
-    lcdlayer = app.activeDocument.artLayers.add()
+    lcdlayer = doc.artLayers.add()
     lcdlayer.move(dupe, ps.ElementPlacement.PlaceBefore)
     pattern_fill(lcdlayer, rgb_file, 10, 10)
     lcdlayer.blendMode = ps.BlendMode.Multiply
@@ -238,7 +243,7 @@ def crt_filter():
     # Setup base layers
     dupe = base_layer.duplicate()
     dupe.move(lcdlayer, ps.ElementPlacement.PlaceBefore)
-    scan_layer = app.activeDocument.artLayers.add()
+    scan_layer = doc.artLayers.add()
     scan_layer.move(dupe, ps.ElementPlacement.PlaceBefore)
     pattern_fill(scan_layer, scan_file, 10, 10)
     scan_layer.blendMode = ps.BlendMode.Multiply
@@ -246,7 +251,7 @@ def crt_filter():
     g_layer = r_layer.duplicate()
     b_layer = g_layer.duplicate()
     # Red pixels
-    red_mask = app.activeDocument.artLayers.add()
+    red_mask = doc.artLayers.add()
     red_mask.move(r_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(red_mask, r_file, 10, 10)
     lens_blur(red_mask, 1, noise_amount=1)
@@ -254,7 +259,7 @@ def crt_filter():
     red_mask = red_mask.merge()
     red_mask.applyMaximum(0.6)
     # Green pixels
-    green_mask = app.activeDocument.artLayers.add()
+    green_mask = doc.artLayers.add()
     green_mask.move(g_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(green_mask, g_file, 10, 10)
     lens_blur(green_mask, 1, noise_amount=1)
@@ -263,7 +268,7 @@ def crt_filter():
     green_mask.applyMaximum(0.6)
     green_mask.blendMode = ps.BlendMode.Screen
     # Blue pixels
-    blue_mask = app.activeDocument.artLayers.add()
+    blue_mask = doc.artLayers.add()
     blue_mask.move(b_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(blue_mask, b_file, 10, 10)
     lens_blur(blue_mask, 1, noise_amount=1)
@@ -301,12 +306,13 @@ def crt_filter():
     glow_layer.resize(100.8, 100.8, ps.AnchorPosition.MiddleCenter)
     glow_layer.fillOpacity = 30
 
+    new_hw, new_hh = doc.width/2, doc.height/2
     l, t, r, b = (
-        delta - post_delta,
-        delta - post_delta,
-        original_w + delta + post_delta,
-        original_h + delta + post_delta,
+        new_hw - hw - post_delta,
+        new_hh - hh - post_delta,
+        new_hw + hw + post_delta,
+        new_hh + hh + post_delta,
     )
     # l, t, r, b = d, d, original_w+d, original_h+d
-    app.activeDocument.crop([l, t, r, b])
+    doc.crop([l, t, r, b])
     img_resize(doc, resolution=800, method="bicubicSharper")
