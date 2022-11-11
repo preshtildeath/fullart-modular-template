@@ -109,25 +109,17 @@ class FullArtModularTemplate(temp.StarterTemplate):
         cfg.remove_flavor = True
         cfg.remove_reminder = True
 
-        fonts = os.listdir(r"C:\Windows\Fonts")
-        fonts += os.listdir(os.path.join(os.environ['USERPROFILE'], r"AppData\Local\Microsoft\Windows\Fonts"))
-        fcheck = {"plantinmt": None, "mplantin": None}
-        for f in fonts:
-            for c in fcheck.keys():
-                if c.lower() in f.lower():
-                    fcheck[c] = True
-        if fcheck["plantinmt"]:
-            con.font_rules_text = "Plantin MT Pro"
-            con.font_rules_text_italic = "Plantin MT Pro"
-        elif fcheck["mplantin"]:
+        try:
+            font = app.fonts.getByName("Plantin MT Pro").name
+            con.font_rules_text = font
+            con.font_rules_text_italic = font
+        except:
             console.update("'Plantin MT Pro' font not found, please install for best results.")
-            con.font_rules_text = "MPlantin"
-            con.font_rules_text_italic = "MPlantin-Italic"
-        else:
-            console.update("'MPlantin' font not found, watch out for weird renders or errors.")
-            con.font_rules_text = "Arial"
-            con.font_rules_text_italic = "Arial Italic"
-
+            try:
+                con.font_rules_text = app.fonts.getByName("MPlantin").name
+                con.font_rules_text_italic = app.fonts.getByName("MPlantin-Italic").name
+            except:
+                console.update("'MPlantin' or 'MPlantin-Italic' fonts not found, oops! Sticking to defaults.")
 
         super().__init__(layout)
 
@@ -391,7 +383,7 @@ class FullArtModularTemplate(temp.StarterTemplate):
         tools.layer_vert_stretch(self.art_reference, -modifier/2, "top")
         # Let's make sure it fits, both vertically and the right bound.
         tools.fit_text(self.rules_text, textbox_ref)
-        tools.frame(self.rules_text, textbox_ref, resize=False, h=self.is_centered, v=True)
+        tools.frame(self.rules_text, textbox_ref, False, self.is_centered, True)
 
         console.update("Framing our art layer...")
         tools.frame(self.art_layer, self.art_reference)
@@ -817,8 +809,13 @@ class PixelModularTemplate(temp.StarterTemplate):
         app.preferences.interpolation = ps.ResampleMethod.NearestNeighbor
         cfg.remove_flavor = True
         cfg.remove_reminder = True
-        con.font_rules_text = "m5x7"
-        con.font_rules_text_italic = "Silver"
+
+        try:
+            con.font_rules_text = app.fonts.getByName("m5x7").name
+            con.font_rules_text_italic = app.fonts.getByName("Silver").name
+        except:
+            console.update("'m5x7' or 'Silver' fonts not found, oops! Sticking to defaults.")
+
         layout.oracle_text = re.sub(r"[—•]", "-", layout.oracle_text)
 
         # If inverted or circle-less, inner symbols are colored and background circle is black

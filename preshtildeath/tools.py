@@ -104,7 +104,7 @@ def move_art(layout, set):
         return e
 
 
-def frame(layer, ref_layer, resize=True, h=True, v=True, resample="bicubicAutomatic"):
+def frame(layer, ref_layer, resize=True, horiz=True, vert=True, resample="bicubicAutomatic"):
     w, h = layer.bounds[2]-layer.bounds[0], layer.bounds[3]-layer.bounds[1]
     r = 1 * max(
         (ref_layer.bounds[2]-ref_layer.bounds[0])/w,
@@ -115,8 +115,8 @@ def frame(layer, ref_layer, resize=True, h=True, v=True, resample="bicubicAutoma
         (ref_layer.bounds[3]+ref_layer.bounds[1])/2
         ]
     layer_offset = [(w*r)/2, (h*r)/2]
-    x = ref_center[0]-layer_offset[0]-layer.bounds[0] if h else 0
-    y = ref_center[1]-layer_offset[1]-layer.bounds[1] if v else 0
+    x = ref_center[0]-layer_offset[0]-layer.bounds[0] if horiz else 0
+    y = ref_center[1]-layer_offset[1]-layer.bounds[1] if vert else 0
     free_transform(layer, x, y, w=r*100, h=r*100, resample=resample)
 
 
@@ -570,7 +570,7 @@ def text_path_shift(layer, modifier, d="top"):
     text_dims = psd.get_layer_dimensions(layer)
     new_top = top+modifier if d == "top" else top
     new_left = left_side+modifier if d == "left" else left_side
-    path_points = [p.subPathItems[0].pathPoints for p in doc.pathItems if p.name == f"{layer.name} Type Path"][0]
+    path_points = [p.subPathItems[0].pathPoints for p in doc.pathItems if layer.name in p.name][0]
 
     # ref50.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt") )
     # desc347.putReference(cid("null"), ref50)
