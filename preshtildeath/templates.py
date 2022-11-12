@@ -817,6 +817,8 @@ class PixelModularTemplate(temp.StarterTemplate):
             console.update("'m5x7' or 'Silver' fonts not found, oops! Sticking to defaults.")
 
         layout.oracle_text = re.sub(r"[—•]", "-", layout.oracle_text)
+        layout.oracle_text = layout.oracle_text.replace(r"’", r"'")
+        
 
         # If inverted or circle-less, inner symbols are colored and background circle is black
         if presh_config.invert_mana or not presh_config.symbol_bg:
@@ -961,7 +963,21 @@ class PixelModularTemplate(temp.StarterTemplate):
             psd.replace_text(mana_layer, "^", "")
 
         # Move oracle text and resize textbox
-        delta = textbox.bounds[3]-self.body_layer.bounds[3]
+        if self.is_creature:
+            tools.select_nonblank_pixels(self.body_layer)
+            tools.select_nonblank_pixels(
+                tools.get_layer("PT Ref", "Ref"),
+                "Intr"
+            )
+            try:
+                delta = min(
+                    textbox.bounds[3]-doc.selection.bounds[3],
+                    textbox.bounds[3]-self.body_layer.bounds[3]
+                )
+            except:
+                delta = textbox.bounds[3]-self.body_layer.bounds[3]-8
+            doc.selection.deselect()
+        else: delta = textbox.bounds[3]-self.body_layer.bounds[3]
         self.body_layer.translate(0, delta)
         type_layer.translate(0, delta)
         textbox.resize()
@@ -1003,4 +1019,6 @@ class PixelModularTemplate(temp.StarterTemplate):
         if presh_config.move_art:
             # Move art source to a new folder
             console.update("Moving art file...")
-            tools.move_art(self.layout, self.set)
+            moved = tools.move_art(self.layout, self.layout.set)
+            if moved != True:
+                console.update(f"Could not move art file: {moved}")

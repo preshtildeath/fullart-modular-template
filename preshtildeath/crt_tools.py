@@ -2,14 +2,8 @@ import photoshop.api as ps
 import os
 
 app = ps.Application()
-
-# define these because otherwise they take up so many characters
-def cid(char):
-    return app.charIDToTypeID(char)
-
-
-def sid(string):
-    return app.stringIDToTypeID(string)
+cid = app.charIDToTypeID
+sid = app.stringIDToTypeID
 
 
 def default_colors():
