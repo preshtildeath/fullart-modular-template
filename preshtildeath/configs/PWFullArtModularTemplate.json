@@ -1,0 +1,34 @@
+[
+  {
+    "type": "bool",
+    "title": "[b]Move Art[/b]",
+    "desc": "Moves art file into a /finished/ folder after it has been used to render an image.\n[b](Default: True)[/b]",
+    "section": "GENERAL",
+    "key": "Move.Art",
+    "default": "1"
+  },
+  {
+    "type": "bool",
+    "title": "[b]Hollow Mana[/b]",
+    "desc": "Use the outlined version of the mana symbols.\n[b](Default: True)[/b]",
+    "section": "GENERAL",
+    "key": "Holow.Mana",
+    "default": "1"
+  },
+  {
+    "type": "bool",
+    "title": "[b]Borderless[/b]",
+    "desc": "Turns off the black border, and sets the art image to fill the card.\n[b](Default: False)[/b]",
+    "section": "GENERAL",
+    "key": "Borderless",
+    "default": "0"
+  },
+  {
+    "type": "bool",
+    "title": "[b]Side Pinlines[/b]",
+    "desc": "The pinlines to the left and right of the art frame. Sometimes I like the look of them still being there!\n[b](Default: False)[/b]",
+    "section": "GENERAL",
+    "key": "Side.Pinlines",
+    "default": "0"
+  }
+]

@@ -8,6 +8,9 @@ import os.path as path
 import re
 
 import photoshop.api as ps
+from photoshop.api._artlayer import ArtLayer
+from photoshop.api._layerSet import LayerSet
+from photoshop.api._document import Document
 import proxyshop.helpers as psd
 import requests
 from proxyshop.settings import Config
@@ -16,29 +19,38 @@ app = ps.Application()
 cid = app.charIDToTypeID
 sid = app.stringIDToTypeID
 
-
-def get_layer(name: str, *args):
+def get_layer(name: str, *args: str|LayerSet, **kwargs: Document) -> ArtLayer:
     """
     Retrieve layer object.
+    name: The name of the layer to be found.
+    args: Any number of layer group names, or a LayerSet.
+    kwargs:
+        doc: The parent document. If not provided, defaults to activeDocument.
     """
-    layer_set = app.activeDocument
-    if args:
-        layer_set = get_layer_set(*args)
-    if isinstance(name, str):
+    doc = kwargs.get("doc", app.activeDocument)
+    layer_set = get_layer_set(*args, doc=doc) if args else doc
+    try:
         return layer_set.artLayers.getByName(name)
-    return name
+    except Exception as e:
+        print(e)
 
 
-def get_layer_set(name: str, *args):
+def get_layer_set(name: str|LayerSet, *args: str|LayerSet, **kwargs: Document) -> LayerSet:
     """
     Retrieve layer group object.
+    name: The name of the layer group to be found.
+    args: Any number of layer group names, or a LayerSet.
+    kwargs:
+        doc: The parent document. If not provided, defaults to activeDocument.
     """
-    layer_set = app.activeDocument
-    if args:
-        layer_set = get_layer_set(*args)
-    if isinstance(name, str):
+    if isinstance(name, LayerSet):
+        return name
+    doc = kwargs.get("doc", app.activeDocument)
+    layer_set = get_layer_set(*args, doc=doc) if args else doc
+    try:
         return layer_set.layerSets.getByName(name)
-    return name
+    except Exception as e:
+        print(e)
 
 
 def selection_exists(selection):
@@ -73,50 +85,85 @@ def bounds_to_dimensions(bounds) -> dict:
     }
 
 
+def bounds_height(bounds) -> int:
+    return round(bounds_to_dimensions(bounds)["height"])
+
+
+def bounds_width(bounds) -> int:
+    return round(bounds_to_dimensions(bounds)["width"])
+
+
+def bounds_center(bounds) -> dict:
+    return {
+        "horiz": (bounds[2] + bounds[0])/2,
+        "vert": (bounds[3] + bounds[1])/2,
+    }
+
+
 def move_to(layer, x, y):
     layer.translate(x-layer.bounds[0], y-layer.bounds[1])
 
 
-def move_art(layout, set):
-
+def move_art(layout):
     # Set up paths and determine file extension
-    work_path = os.path.dirname(layout.file)
-    new_name = f"{layout.name} ({layout.artist}) [{set}]"
-    ext = os.path.splitext(os.path.basename(layout.file))[1]
-    layout_type = type(layout).__name__
+    work_path = os.path.dirname(layout.filename)
+    new_name = path.basename(layout.filename)
+    layout_type = layout.card_class
 
-    if "finished" not in work_path:
-        fin_path = os.path.join(work_path, "finished")
-        if layout_type != "NormalLayout":
-            fin_path = os.path.join(fin_path, layout_type)
+    if "finished" in work_path:
+        return False
+    elif layout_type != "NormalLayout":
+        fin_path = os.path.join(work_path, "finished", layout_type)
     else:
-        fin_path = work_path
+        fin_path = os.path.join(work_path, "finished")
 
     if not os.path.exists(fin_path):
         os.mkdir(fin_path)
 
-    new_file = os.path.join(fin_path, f"{new_name}{ext}")
+    new_file = filename_append(os.path.join(fin_path, new_name), fin_path)
     try:
-        if new_file != layout.file:
-            os.replace(layout.file, filename_append(new_file, fin_path))
-        return True
+        os.replace(layout.filename, new_file)
+        return new_file
     except Exception as e:
         return e
 
 
-def frame(layer, ref_layer, resize=True, horiz=True, vert=True, resample="bicubicAutomatic"):
-    w, h = layer.bounds[2]-layer.bounds[0], layer.bounds[3]-layer.bounds[1]
-    r = 1 * max(
-        (ref_layer.bounds[2]-ref_layer.bounds[0])/w,
-        (ref_layer.bounds[3]-ref_layer.bounds[1])/h
+def frame(layer, ref, horiz="middle", vert="middle", resize=True, outside=True, resample="bicubicAutomatic"):
+    """
+    layer: The layer that will be moved and resized.
+    ref: The reference layer.
+    horiz: "left", "middle", "right" - horizontal alignment, leave empty to not move.
+    vert: "top", "middle", "bottom" - horizontal alignment, leave empty to not move.
+    resize: boolean, determines if the layer will be shrunk or enlarged to fit in the reference.
+    """
+    circum = max if outside else min
+    bounds = layer.bounds
+    w, h = bounds[2]-bounds[0], bounds[3]-bounds[1]
+    if isinstance(ref, list|tuple):
+        left, top, right, bottom = ref
+    elif hasattr(ref, "bounds"):
+        left, top, right, bottom = ref.bounds
+    r = circum(
+        (right - left) / w,
+        (bottom - top) / h,
     ) if resize else 1
     ref_center = [
-        (ref_layer.bounds[2]+ref_layer.bounds[0])/2,
-        (ref_layer.bounds[3]+ref_layer.bounds[1])/2
+        (right + left) * 0.5,
+        (bottom + top) * 0.5,
         ]
-    layer_offset = [(w*r)/2, (h*r)/2]
-    x = ref_center[0]-layer_offset[0]-layer.bounds[0] if horiz else 0
-    y = ref_center[1]-layer_offset[1]-layer.bounds[1] if vert else 0
+    layer_offset = [w * r, h * r]
+    x_dict = {
+        "left": left - bounds[0],
+        "middle": ref_center[0] - bounds[0] - layer_offset[0]*0.5,
+        "right": right - bounds[0] - layer_offset[0],
+        }
+    y_dict = {
+        "top": top - bounds[1],
+        "middle": ref_center[1] - bounds[1] - layer_offset[1]*0.5,
+        "bottom": bottom - bounds[1] - layer_offset[1],
+        }
+    x = x_dict.get(horiz, 0)
+    y = y_dict.get(vert, 0)
     free_transform(layer, x, y, w=r*100, h=r*100, resample=resample)
 
 
@@ -126,6 +173,7 @@ def remove_background(layer):
     desc = ps.ActionDescriptor()
     desc.putBoolean(sid("sampleAllLayers"), False)
     app.executeAction(sid("autoCutout"), desc, ps.DialogModes.DisplayNoDialogs)
+    make_mask()
     desc1 = ps.ActionDescriptor()
     chnl = cid("Chnl")
     desc1.putClass(cid("Nw  "), chnl)
@@ -138,7 +186,7 @@ def remove_background(layer):
 
 
 def rgbcolor(r: int, g: int, b: int):
-    """Return a SolidColor object with given decimal values."""
+    """ Return a SolidColor object with given decimal values. """
     color = ps.SolidColor()
     color.rgb.red = r
     color.rgb.green = g
@@ -147,13 +195,10 @@ def rgbcolor(r: int, g: int, b: int):
 
 
 def get_expansion(layer, rarity: str, ref_layer, set_code: str):
-    """Find and open the set symbol SVG and pop it into our document."""
+    """ Find and open the set symbol SVG and pop it into our document. """
 
     # Start nice and clean
     white = rgbcolor(255, 255, 255)
-    doc = app.activeDocument
-    prev_active_layer = doc.activeLayer
-    doc.activeLayer = layer
     set_code = set_code.upper()
     svg_folder = path.join(path.dirname(__file__), "assets", "Set Symbols")
     if not path.exists(svg_folder):
@@ -172,7 +217,7 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
     if key:
         key = key[0]
         svg_uri = (
-            f"https://c2.scryfall.com/file/scryfall-symbols/sets/{key.lower()}.svg"
+            f"https://svgs.scryfall.io/sets/{key.lower()}.svg"
         )
     else:
         scry_json = requests.get(f"https://api.scryfall.com/sets/{set_code.lower()}", timeout=5).json()
@@ -213,73 +258,57 @@ def get_expansion(layer, rarity: str, ref_layer, set_code: str):
             .replace("]}", "]\n}")
         )
 
-    max_size = ref_layer.bounds[3] - ref_layer.bounds[1]
-
-    svglayer = place_image(layer, svg_path, 10)
-    percent = max_size/(svglayer.bounds[3]-svglayer.bounds[1]) * 100
-    if percent > 100:
-        old_layer = svglayer
-        svglayer = place_image(svglayer, svg_path, p=percent)
-        percent = max_size/(svglayer.bounds[3]-svglayer.bounds[1]) * 100
-        old_layer.delete()
-    svglayer.resize(percent, percent)
-    app.executeAction(cid("Mrg2"), ps.ActionDescriptor(), ps.DialogModes.DisplayNoDialogs)
+    max_size = bounds_height(ref_layer.bounds)
+    doc = app.activeDocument
+    doc.activeLayer = layer
+    svg_open(svg_path, max_size)
+    new_doc = app.activeDocument
+    new_doc.selection.selectAll()
+    new_doc.selection.copy()
+    new_doc.close(ps.SaveOptions.DoNotSaveChanges)
+    doc.paste()
 
     # Align verticle center, horizontal right.
-    psd.select_layer_pixels(ref_layer)
-    psd.align_vertical()
-    doc.selection.deselect()
-    layer.translate(ref_layer.bounds[2] - layer.bounds[2], 0)
+    frame(layer, ref_layer, horiz="right", outside=False, resize=False)
 
     # Magic Wand non-contiguous outside symbol, then subtract contiguous
     x, y = layer.bounds[0] - 50, layer.bounds[1] - 50
-    magic_wand_select(layer, x, y, "setd", 0, True, False)
-    magic_wand_select(layer, x, y, "SbtF", 0, True)
-    slct = app.activeDocument.selection
+    slct = magic_wand_select(layer, x, y, "setd")
+    slct.invert()
+    slct.expand(1)
 
     # Make a new layer and fill with stroke color
     fill_layer = add_layer(name="Expansion Mask")
-    fill_layer.blendMode = ps.BlendMode.NormalBlend
-    fill_layer.visible = True
     fill_layer.moveAfter(layer)
     slct.fill(white)
     slct.deselect()
-
-    # Maximum filter to keep the antialiasing normal
-    fill_layer.applyMaximum(1)
-
+    
     layer.link(fill_layer)
 
     # Apply rarity mask if necessary, and center it on symbol.
     if rarity != "common":
-        mask_layer = get_layer(rarity, "Expansion")
-        doc.activeLayer = mask_layer
-        psd.select_layer_pixels(layer)
-        psd.align_horizontal()
-        psd.align_vertical()
-        psd.clear_selection()
-        mask_layer.visible = True
+        mask_layer = get_layer(rarity, "Expansion", doc=doc)
+        frame(mask_layer, layer, resize=False)
         layer.link(mask_layer)
 
-    doc.activeLayer = prev_active_layer
     return layer
 
 
 def filename_append(file, send_path):
-    """Check if a file already exists, then adds (x) if it does."""
-    file_name, extension = path.splitext(path.basename(file))  # imagename, .xxx
-    test_name = path.join(send_path, f"{file_name}{extension}")
+    """ Check if a file already exists, then adds (x) if it does. """
+    file_name, ext = path.splitext(path.basename(file))  # imagename, .xxx
+    test_name = path.join(send_path, f"{file_name}{ext}")
     if path.exists(test_name):  # location/imagename.xxx
         multi = 1
-        test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
+        test_name = path.join(send_path, f"{file_name} ({multi}){ext}")
         while path.exists(test_name):  # location/imagename (1).xxx
             multi += 1
-            test_name = path.join(send_path, f"{file_name} ({multi}){extension}")
+            test_name = path.join(send_path, f"{file_name} ({multi}){ext}")
     return test_name  #  returns "location/imagename.xxx" or "location/imagename (x).xxx"
 
 
 def dirty_text_scale(input_text, chars_in_line):
-    """Gives an estimated number of lines at default text size."""
+    """ Gives an estimated number of lines at default text size. """
     input_text = re.sub("\{.*?\}", "X", input_text)
     line_count = math.ceil(input_text.count("\n") * 0.5)
     for paragraph in input_text.split("\n"):
@@ -296,17 +325,20 @@ def dirty_text_scale(input_text, chars_in_line):
 
 
 def layer_vert_stretch(layer, modifier, anchor="bottom", method="nearestNeighbor"):
-    """Stretches a layer by (-modifier) pixels."""
+    """ Stretches a layer by (-modifier) pixels. """
     transform_delta = {"top": 0, "center": modifier / 2, "bottom": modifier}
-    height = layer.bounds[3] - layer.bounds[1]
+    height = bounds_height(bounds_nofx(layer))
     h_perc = (height - modifier) / height * 100
-    free_transform(layer, 0, transform_delta[anchor], 100, h_perc, method)
+    free_transform(layer, y=transform_delta[anchor], h=h_perc, resample=method)
 
 
-def wubrg_layer_sort(color_pair, layers):
-    """Rearranges two color layers in order and applies mask."""
-    top = get_layer(color_pair[-2], layers)
-    bottom = get_layer(color_pair[-1], layers)
+def wubrg_layer_sort(color_pair, layers, doc=None, prefix=""):
+    """ Rearranges two color layers in order and applies mask. """
+    if doc == None: doc = app.activeDocument
+    print(prefix+color_pair[-2])
+    print(prefix+color_pair[-1])
+    top = get_layer(str(prefix+color_pair[-2]), layers, doc=doc)
+    bottom = get_layer(str(prefix+color_pair[-1]), layers, doc=doc)
     top.moveBefore(bottom)
     psd.set_layer_mask(top)
     top.visible = True
@@ -314,13 +346,13 @@ def wubrg_layer_sort(color_pair, layers):
 
 
 def add_select_layer(layer):
-    """"Adds to current Selection using the boundary of a layer."""
+    """" Adds to current Selection using the boundary of a layer. """
     return select_layer(layer, ps.SelectionType.ExtendSelection)
 
 
 def select_layer(layer, type=None):
-    """Creates a Selection using the boundary of a layer."""
-    type = ps.SelectionType.ReplaceSelection if not type else None
+    """ Creates a Selection using the boundary of a layer. """
+    if not type: type = ps.SelectionType.ReplaceSelection
     try:
         left, top, right, bottom = layer.bounds
     except Exception as e:
@@ -332,7 +364,7 @@ def select_layer(layer, type=None):
 
 
 def get_text_bounding_box(layer, width=None, height=None):
-    """Get width and height of paragraph text box."""
+    """ Get width and height of paragraph text box. """
     pref_scale = 72 if app.preferences.pointSize == 1 else 72.27
     scale = app.activeDocument.resolution / pref_scale
     multiplier = scale ** 2
@@ -349,16 +381,47 @@ def get_text_bounding_box(layer, width=None, height=None):
 
 
 def layer_mask_select(layer):
-    """Selects the layer mask for editing."""
-    app.activeDocument.activeLayer = layer
-    desc = ps.ActionDescriptor()
+    """ Selects the layer mask for editing. """
+    channel_select(layer)
+
+def layer_rgb_select(layer):
+    """ Selects the layer RGB for editing. """
+    channel_select(layer, "RGB ")
+
+def channel_select(layer, channel="Msk "):
+    """
+    Selects the layer mask for editing.
+    - 'Msk ': Mask
+    - 'RGB ': Regular
+    """
     ref = ps.ActionReference()
-    chnl = cid("Chnl")
-    ref.putEnumerated(chnl, chnl, cid("Msk "))
+    ref.putEnumerated(cid("Chnl"), cid("Chnl"), cid(channel))
+    ref.putIdentifier(sid("layer"), layer.id)
+    desc = ps.ActionDescriptor()
     desc.putReference(cid("null"), ref)
     desc.putBoolean(cid("MkVs"), True)
     app.executeAction(cid("slct"), desc, 3)
-    return
+
+
+def make_mask(layer):
+    app.activeDocument.activeLayer = layer
+    desc = ps.ActionDescriptor()
+    desc.putClass(cid("Nw  "), cid("Chnl"))
+    ref = ps.ActionReference()
+    ref.putEnumerated(cid("Chnl"), cid("Chnl"), cid("Msk "))
+    desc.putReference(cid("At  "), ref)
+    desc.putEnumerated(cid("Usng"), cid("UsrM"), cid("RvlS"))
+    app.executeAction(cid("Mk  "), desc, ps.DialogModes.DisplayNoDialogs)
+
+def load_rgb_selection():
+    ref = ps.ActionReference()
+    ref.putProperty(cid("Chnl"), cid("fsel"))
+    dsc = ps.ActionDescriptor()
+    dsc.putReference(cid("null"), ref)
+    trgt_ref = ps.ActionReference()
+    trgt_ref.putEnumerated(cid("Chnl"), cid("Chnl"), cid("RGB "))
+    dsc.putReference(cid("T   "), trgt_ref)
+    app.executeAction(cid("setd"), dsc)
 
 
 def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
@@ -379,22 +442,20 @@ def magic_wand_select(layer, x, y, style="setd", t=0, a=True, c=True, s=False):
     @return: Selection.
     """
     select = cid(style)
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
-    desc1 = ps.ActionDescriptor()
-    desc2 = ps.ActionDescriptor()
+    active_layer(layer)
     ref = ps.ActionReference()
     ref.putProperty(cid("Chnl"), cid("fsel"))
-    desc1.putReference(cid("null"), ref)
-    desc2.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
-    desc2.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
-    desc1.putObject(cid("T   "), cid("Pnt "), desc2)
-    desc1.putInteger(cid("Tlrn"), t)  # Tolerance
-    desc1.putBoolean(cid("AntA"), a)  # Anti-aliasing
-    desc1.putBoolean(cid("Cntg"), c)  # Contiguous
-    desc1.putBoolean(cid("Mrgd"), s)  # Sample all layers
-    app.executeAction(select, desc1, ps.DialogModes.DisplayNoDialogs)
-    app.activeDocument.activeLayer = old_layer
+    dsc_slct = ps.ActionDescriptor()
+    dsc_slct.putReference(cid("null"), ref)
+    dsc_pnt = ps.ActionDescriptor()
+    dsc_pnt.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
+    dsc_pnt.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
+    dsc_slct.putObject(cid("T   "), cid("Pnt "), dsc_pnt)
+    dsc_slct.putInteger(cid("Tlrn"), t)  # Tolerance
+    dsc_slct.putBoolean(cid("AntA"), a)  # Anti-aliasing
+    dsc_slct.putBoolean(cid("Cntg"), c)  # Contiguous
+    dsc_slct.putBoolean(cid("Mrgd"), s)  # Sample all layers
+    app.executeAction(select, dsc_slct, ps.DialogModes.DisplayNoDialogs)
     return app.activeDocument.selection
 
 
@@ -409,47 +470,39 @@ def select_nonblank_pixels(layer, style="setd"):
         "Intr": Intersects with existing selection.
     """
     select = cid(style)
-    # old_layer = app.activeDocument.activeLayer
-    # app.activeDocument.activeLayer = layer
-    dsc = ps.ActionDescriptor()
+    id_chnl = cid("Chnl")
     ref_selection = ps.ActionReference()
+    ref_selection.putProperty(id_chnl, cid("fsel"))
     ref_trans_enum = ps.ActionReference()
-    chan = cid("Chnl")
-    ref_selection.putProperty(chan, cid("fsel"))
-    ref_trans_enum.putEnumerated(chan, chan, cid("Trsp"))
-    ref_trans_enum.putIdentifier(cid("Lyr "), int(layer.id))
+    ref_trans_enum.putEnumerated(id_chnl, id_chnl, cid("Trsp"))
+    ref_trans_enum.putIdentifier(sid("layer"), layer.id)
+    dsc = ps.ActionDescriptor()
     if style == "setd":
         dsc.putReference(cid("null"), ref_selection)
         dsc.putReference(cid("T   "), ref_trans_enum)
     else:
         prep = {"Add ": "T   ", "Sbtr": "From", "Intr": "With"}
-        point = cid(prep[style])
-        dsc.putReference(point, ref_selection)
+        dsc.putReference(cid(prep[style]), ref_selection)
         dsc.putReference(cid("null"), ref_trans_enum)
-    app.executeAction(select, dsc, 3)
-    # app.activeDocument.activeLayer = old_layer
-    return app.activeDocument.selection
+    app.executeAction(select, dsc, ps.DialogModes.DisplayNoDialogs)
 
 
 def get_layer_index(layerID):
     ref = ps.ActionReference()
-    ref.putIdentifier(cid("Lyr "), layerID)
-    try:
-        app.activeDocument.backgroundLayer
-        return app.executeActionGet(ref).getInteger(cid("ItmI")) - 1
-    except:
-        return app.executeActionGet(ref).getInteger(cid("ItmI"))
+    ref.putIdentifier(sid("layer"), layerID)
+    dsc = app.executeActionGet(ref)
+    if dsc.getBoolean(sid("background")): delta = 1
+    else: delta = 0
+    return dsc.getInteger(cid("ItmI")) - delta
 
 
 def move_inside(fromlayer, layerset):
-    fromID = int(fromlayer.id)
-    toID = int(layerset.id)
-    desc = ps.ActionDescriptor()
     ref1 = ps.ActionReference()
-    ref2 = ps.ActionReference()
-    ref1.putIdentifier(cid("Lyr "), fromID)
+    ref1.putIdentifier(sid("layer"), fromlayer.id)
+    desc = ps.ActionDescriptor()
     desc.putReference(cid("null"), ref1)
-    ref2.putIndex(cid("Lyr "), get_layer_index(toID))
+    ref2 = ps.ActionReference()
+    ref2.putIndex(sid("layer"), get_layer_index(layerset.id))
     desc.putReference(cid("T   "), ref2)
     desc.putBoolean(cid("Adjs"), False)
     desc.putInteger(cid("Vrsn"), 5)
@@ -459,32 +512,32 @@ def move_inside(fromlayer, layerset):
         return err
 
 
-def add_layer(layer=None, name=None):
-    layer = app.activeDocument.activeLayer if not layer else layer
-    desc = ps.ActionDescriptor()
+def add_layer(layer=None, name=False):
+    if not layer: layer = app.activeDocument.activeLayer
+    desc_mk = ps.ActionDescriptor()
     ref = ps.ActionReference()
-    ref.putClass(cid("Lyr "))
-    desc.putReference(cid("null"), ref)
-    desc.putInteger(cid("LyrI"), get_layer_index(layer.id))
-    app.executeAction(cid("Mk  "), desc, ps.DialogModes.DisplayNoDialogs)
-    layer = app.activeDocument.activeLayer
-    if not name:
-        layer.name = name
-    return layer
+    ref.putClass(sid("layer"))
+    desc_mk.putReference(cid("null"), ref)
+    if name:
+        desc_usng = ps.ActionDescriptor()
+        desc_usng.putString(sid("name"), name)
+    desc_mk.putObject(cid("Usng"), cid("Lyr "), desc_usng)
+    desc_mk.putInteger(cid("LyrI"), get_layer_index(layer.id))
+    app.executeAction(cid("Mk  "), desc_mk, ps.DialogModes.DisplayNoDialogs)
+    return app.activeDocument.activeLayer
 
 
 def paste_in_place():
-    """Equivalent of Ctrl+Shift+V."""
+    """ Equivalent of Ctrl+Shift+V. """
     paste = ps.ActionDescriptor()
     paste.putBoolean(sid("inPlace"), True)
-    paste.putEnumerated(cid("AntA"), cid("Antt"), cid("Anto"))
-    app.executeAction(cid("past"), paste, 3)
+    paste.putEnumerated(cid("AntA"), cid("Antt"), cid("Anno"))
+    paste.putClass(cid("As  "), cid("Pxel"))
+    app.executeAction(cid("past"), paste, ps.DialogModes.DisplayNoDialogs)
 
 
 def svg_open(file: str, height: int):
-    """
-    Opens a SVG scaled to (height) pixels tall
-    """
+    """ Opens a SVG scaled to (height) pixels tall. """
     sett_desc = ps.ActionDescriptor()
     sett_desc.putUnitDouble(cid("Hght"), cid("#Pxl"), height)
     sett_desc.putUnitDouble(cid("Rslt"), cid("#Rsl"), 800.000000)
@@ -500,21 +553,19 @@ def svg_open(file: str, height: int):
 
 
 def layer_styles_visible(layer, visible=True):
+    """ Enables or disables target layer styles. """
     show_hide = cid("Shw ") if visible else cid("Hd  ")
-    # old_layer = app.activeDocument.activeLayer
-    # app.activeDocument.activeLayer = layer
     ref1 = ps.ActionReference()
-    list1 = ps.ActionList()
-    desc1 = ps.ActionDescriptor()
     ref1.putClass(cid("Lefx"))
-    ref1.putIdentifier(cid("Lyr "), int(layer.id))
+    ref1.putIdentifier(sid("layer"), int(layer.id))
+    list1 = ps.ActionList()
     list1.putReference(ref1)
+    desc1 = ps.ActionDescriptor()
     desc1.putList(cid("null"), list1)
     app.executeAction(show_hide, desc1, 3)
-    # app.activeDocument.activeLayer = old_layer
     
 
-def free_transform(layer, x=0, y=0, w=100, h=100, resample="bicubicAutomatic"):
+def free_transform(layer, x=0, y=0, w=100, h=100, posit: list=None, resample="bicubicAutomatic"):
     """
     Free Transform a layer.
     layer: The layer to be transformed.
@@ -525,27 +576,44 @@ def free_transform(layer, x=0, y=0, w=100, h=100, resample="bicubicAutomatic"):
     resample: StringID of the resample method.
         (bicubicAutomatic, bicubicSharper, bicubicSmoother, bilinear, nearestNeighbor)
     """
-    style = sid(resample)
-    old_layer = app.activeDocument.activeLayer
-    if old_layer != layer:
-        app.activeDocument.activeLayer = layer
 
-    ref1 = ps.ActionReference()
-    ref1.putEnumerated(cid("Lyr "), cid("Ordn"), cid("Trgt"))
-    desc1 = ps.ActionDescriptor()
-    desc1.putReference(cid("null"), ref1)
-    desc1.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcs0"))
-    desc2 = ps.ActionDescriptor()
-    desc2.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
-    desc2.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
-    desc1.putObject(cid("Ofst"), cid("Ofst"), desc2)
-    desc1.putUnitDouble(cid("Wdth"), cid("#Prc"), w)
-    desc1.putUnitDouble(cid("Hght"), cid("#Prc"), h)
-    desc1.putEnumerated(cid("Intr"), cid("Intp"), style)
-    app.executeAction(cid("Trnf"), desc1, ps.DialogModes.DisplayNoDialogs)
+    active_layer(layer, mkvs=True)
+    ref = ps.ActionReference()
+    ref.putIdentifier(sid("layer"), layer.id)
+    dsc_trnf = ps.ActionDescriptor()
+    dsc_trnf.putReference(cid("null"), ref)
+    dsc_trnf.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcs0"))
+    if posit and isinstance(posit, list|tuple):
+        dsc_pstn = ps.ActionDescriptor()
+        dsc_pstn.putUnitDouble(cid("Hrzn"), cid("#Pxl"), posit[0])
+        dsc_pstn.putUnitDouble(cid("Vrtc"), cid("#Pxl"), posit[1])
+        dsc_trnf.putObject(cid("Pstn"), cid("Pnt "), dsc_pstn)
+    dsc_offset = ps.ActionDescriptor()
+    dsc_offset.putUnitDouble(cid("Hrzn"), cid("#Pxl"), x)
+    dsc_offset.putUnitDouble(cid("Vrtc"), cid("#Pxl"), y)
+    dsc_trnf.putObject(cid("Ofst"), cid("Ofst"), dsc_offset)
+    if w != 100: dsc_trnf.putUnitDouble(cid("Wdth"), cid("#Prc"), w)
+    if h != 100: dsc_trnf.putUnitDouble(cid("Hght"), cid("#Prc"), h)
+    if isinstance(layer, LayerSet):
+        dsc_trnf.putBoolean(cid("Lnkd"), True)
+    dsc_trnf.putEnumerated(cid("Intr"), cid("Intp"), sid(resample))
+    app.executeAction(cid("Trnf"), dsc_trnf)
 
-    if old_layer != layer:
-        app.activeDocument.activeLayer = old_layer
+
+def bounds_nofx(layer) -> list:
+    """ Fetches the bounds of target layer without layer effects. """
+    sides = (
+        sid("left"),
+        sid("top"),
+        sid("right"),
+        sid("bottom"),
+        )
+    id_bounds_nofx = sid("boundsNoEffects")
+    ref = ps.ActionReference()
+    ref.putProperty(sid("property"), id_bounds_nofx)
+    ref.putIdentifier(sid("layer"), layer.id)
+    bounds_dsc = app.executeActionGet(ref).getObjectValue(id_bounds_nofx)
+    return [bounds_dsc.getUnitDoubleValue(s) for s in sides]
 
 
 def creature_text_path_shift(layer, modifier):
@@ -559,149 +627,309 @@ def pw_ability_shift(layer):
 
 
 def text_path_shift(layer, modifier, d="top"):
-    doc = app.activeDocument
     modifier = min(modifier, 900)
-    old_tool = app.currentTool
-    old_layer = doc.activeLayer
-    app.currentTool = "directSelectTool"
-    doc.activeLayer = layer
-    top = round(layer.textItem.position[1])
-    left_side = round(layer.textItem.position[0])
-    text_dims = psd.get_layer_dimensions(layer)
-    new_top = top+modifier if d == "top" else top
-    new_left = left_side+modifier if d == "left" else left_side
-    path_points = [p.subPathItems[0].pathPoints for p in doc.pathItems if layer.name in p.name][0]
 
-    # ref50.putEnumerated(cid("TxLr"), cid("Ordn"), cid("Trgt") )
-    # desc347.putReference(cid("null"), ref50)
-    ref50 = ps.ActionReference()
-    ref50.putIdentifier(cid("Lyr "), layer.id)
-    desc347 = ps.ActionDescriptor()
-    desc347.putReference(cid("null"), ref50)
-    desc354 = ps.ActionDescriptor()
-    desc354.putEnumerated(sid("shapeOperation"), sid("shapeOperation"), sid("xor") )
-    desc355 = ps.ActionDescriptor()
-    desc355.putBoolean(cid("Clsp"), True)
-    list21 = ps.ActionList()
+    # Gonna try a getter instead of grabbing pathItems
+    ref = ps.ActionReference()
+    ref.putProperty(sid("property"), sid("textKey"))
+    ref.putIdentifier(sid("layer"), layer.id)
+    dsc_textkey = app.executeActionGet(ref).getObjectValue(sid("textKey"))
+    tshpdesc = dsc_textkey.getList(sid("textShape")).getObjectValue(0)
+
+    rectdesc = tshpdesc.getObjectValue(sid("bounds"))
+    txt_bounds = [rectdesc.getDouble(sid(side)) for side in ("left", "top", "right", "bottom")]
+    left, top, right, bottom = txt_bounds
+    new_top = top + modifier if d == "top" else top
+    new_left = left + modifier if d == "left" else left
+
+    pathdesc = tshpdesc.getObjectValue(cid("Path"))
+    pacmdesc = pathdesc.getList(sid("pathComponents")).getObjectValue(0)
+    sbpldesc = pacmdesc.getList(cid("SbpL")).getObjectValue(0)
+    pts = sbpldesc.getList(cid("Pts "))
+    path_points = []
+    for i in range(pts.count):
+        coord = pts.getObjectValue(i)
+        anch = coord.getObjectValue(cid("Anch"))
+        x, y = [anch.getUnitDoubleValue(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+        utx, uty = [anch.getUnitDoubleType(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+        path_points += [{"x": x, "y": y, "utx": utx, "uty": uty}]
+        if coord.hasKey(cid("Fwd ")) or coord.hasKey(cid("Bwd ")):
+            fanch = coord.getObjectValue(cid("Fwd "))
+            fx, fy = [fanch.getUnitDoubleValue(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+            futx, futy = [fanch.getUnitDoubleType(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+            path_points[-1].update({"fx": fx, "fy": fy, "futx": futx, "futy": futy})
+            banch = coord.getObjectValue(cid("Bwd "))
+            bx, by = [banch.getUnitDoubleValue(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+            butx, buty = [banch.getUnitDoubleType(cid(dir)) for dir in ["Hrzn", "Vrtc"]]
+            path_points[-1].update({"bx": bx, "by": by, "butx": butx, "buty": buty})
+            path_points[-1].update({"smooth": coord.getBoolean(cid("Smoo"))})
+
+    ref = ps.ActionReference()
+    ref.putIdentifier(sid("layer"), layer.id)
+    dsc_setd = ps.ActionDescriptor()
+    dsc_setd.putReference(cid("null"), ref)
+    dsc_pacm = ps.ActionDescriptor()
+    dsc_pacm.putEnumerated(sid("shapeOperation"), sid("shapeOperation"), sid("xor") )
+    dsc_sbpl = ps.ActionDescriptor()
+    dsc_sbpl.putBoolean(cid("Clsp"), True)
+    lst_pts = ps.ActionList()
 
     for point in path_points:
-        anc_x = new_left if round(point.anchor[0]) == left_side else round(point.anchor[0])
-        anc_y = new_top if round(point.anchor[1]) == top else round(point.anchor[1])
-        coord = ps.ActionDescriptor()
-        coord.putUnitDouble(cid("Hrzn"), cid("#Pxl"), anc_x)
-        coord.putUnitDouble(cid("Vrtc"), cid("#Pxl"), anc_y)
-        desc = ps.ActionDescriptor()
-        desc.putObject(cid("Anch"), cid("Pnt "), coord)
+        anc_x = new_left if round(point["x"]) == round(left) else point["x"]
+        anc_y = new_top if round(point["y"]) == round(top) else point["y"]
+        dsc_anch_pnt = ps.ActionDescriptor()
+        dsc_anch_pnt.putUnitDouble(cid("Hrzn"), point["utx"], anc_x)
+        dsc_anch_pnt.putUnitDouble(cid("Vrtc"), point["uty"], anc_y)
+        dsc_pthp = ps.ActionDescriptor()
+        dsc_pthp.putObject(cid("Anch"), cid("Pnt "), dsc_anch_pnt)
+        if "fx" in point and "bx" in point:
+            dsc_fwd_pnt = ps.ActionDescriptor()
+            dsc_fwd_pnt.putUnitDouble(cid("Hrzn"), point["futx"], point["fx"])
+            dsc_fwd_pnt.putUnitDouble(cid("Vrtc"), point["futy"], point["fy"])
+            dsc_pthp.putObject(cid("Fwd "), cid("Pnt "), dsc_fwd_pnt)
+            dsc_bwd_pnt = ps.ActionDescriptor()
+            dsc_bwd_pnt.putUnitDouble(cid("Hrzn"), point["butx"], point["bx"])
+            dsc_bwd_pnt.putUnitDouble(cid("Vrtc"), point["buty"], point["by"])
+            dsc_pthp.putObject(cid("Bwd "), cid("Pnt "), dsc_bwd_pnt)
+            dsc_pthp.putBoolean(cid("Smoo"), point["smooth"])
+        lst_pts.putObject(cid("Pthp"), dsc_pthp)
 
-        if point.kind == ps.PointKind.SmoothPoint:
-            left = ps.ActionDescriptor()
-            left.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.leftDirection[0])
-            left.putUnitDouble(cid("Vrtc"), cid("#Pxl"), point.leftDirection[1])
-            desc.putObject(cid("Fwd "), cid("Pnt "), left)
-            right = ps.ActionDescriptor()
-            right.putUnitDouble(cid("Hrzn"), cid("#Pxl"), point.rightDirection[0])
-            right.putUnitDouble(cid("Vrtc"), cid("#Pxl"), point.rightDirection[1])
-            desc.putObject(cid("Bwd "), cid("Pnt "), right)
-            desc.putBoolean(cid("Smoo"), False)
-        list21.putObject(cid("Pthp"), desc)
+    dsc_sbpl.putList(cid("Pts "), lst_pts)
+    lst_sbpl = ps.ActionList()
+    lst_sbpl.putObject(cid("Sbpl"), dsc_sbpl)
+    dsc_pacm.putList(cid("SbpL"), lst_sbpl)
+    lst_pathcomp = ps.ActionList()
+    lst_pathcomp.putObject(cid("PaCm"), dsc_pacm)
+    dsc_pathclass = ps.ActionDescriptor()
+    dsc_pathclass.putList(sid("pathComponents"), lst_pathcomp)
+    dsc_txshp = ps.ActionDescriptor()
+    dsc_txshp.putObject(cid("Path"), sid("pathClass"), dsc_pathclass)
+    dsc_txshp.putEnumerated(cid("TEXT"), cid("TEXT"), sid("box") )
 
-    desc355.putList(cid("Pts "), list21)
-    list20 = ps.ActionList()
-    list20.putObject(cid("Sbpl"), desc355)
-    desc354.putList(cid("SbpL"), list20)
-    list19 = ps.ActionList()
-    list19.putObject(cid("PaCm"), desc354)
-    desc353 = ps.ActionDescriptor()
-    desc353.putList(sid("pathComponents"), list19)
-    desc352 = ps.ActionDescriptor()
-    desc352.putObject(cid("Path"), sid("pathClass"), desc353)
-    desc352.putEnumerated(cid("TEXT"), cid("TEXT"), sid("box") )
+    dsc_trnf = ps.ActionDescriptor()
+    dsc_trnf.putDouble(sid("xx"), 1)
+    dsc_trnf.putDouble(sid("xy"), 0)
+    dsc_trnf.putDouble(sid("yx"), 0)
+    dsc_trnf.putDouble(sid("yy"), 1)
+    dsc_trnf.putDouble(sid("tx"), 0-new_left)
+    dsc_trnf.putDouble(sid("ty"), 0-new_top)
+    dsc_txshp.putObject(cid("Trnf"), cid("Trnf"), dsc_trnf)
 
-    desc374 = ps.ActionDescriptor()
-    desc374.putDouble(sid("xx"), 1)
-    desc374.putDouble(sid("xy"), 0)
-    desc374.putDouble(sid("yx"), 0)
-    desc374.putDouble(sid("yy"), 1)
-    desc374.putDouble(sid("tx"), 0-new_left)
-    desc374.putDouble(sid("ty"), 0-new_top)
-    desc352.putObject(cid("Trnf"), cid("Trnf"), desc374)
+    dsc_rctn_bounds = ps.ActionDescriptor()
+    dsc_rctn_bounds.putDouble(cid("Left"), new_left)
+    dsc_rctn_bounds.putDouble(cid("Top "), new_top)
+    dsc_rctn_bounds.putDouble(cid("Rght"), right)
+    dsc_rctn_bounds.putDouble(cid("Btom"), bottom)
+    dsc_txshp.putObject(sid("bounds"), cid("Rctn"), dsc_rctn_bounds)
 
-    desc375 = ps.ActionDescriptor()
-    desc375.putDouble(cid("Top "), new_top)
-    desc375.putDouble(cid("Left"), new_left)
-    desc375.putDouble(cid("Btom"), top+text_dims["height"])
-    desc375.putDouble(cid("Rght"), left_side+text_dims["width"])
-    desc352.putObject(sid("bounds"), cid("Rctn"), desc375)
-
-    list18 = ps.ActionList()
-    list18.putObject(sid("textShape"), desc352)
-    desc348 = ps.ActionDescriptor()
-    desc348.putList(sid("textShape"), list18)
-    desc347.putObject(cid("T   "), cid("TxLr"), desc348)
-    app.executeAction(cid("setd"), desc347, ps.DialogModes.DisplayNoDialogs)
-
-    app.currentTool = old_tool
-    app.activeDocument.activeLayer = old_layer
+    lst_txshp = ps.ActionList()
+    lst_txshp.putObject(sid("textShape"), dsc_txshp)
+    dsc_txlr = ps.ActionDescriptor()
+    dsc_txlr.putList(sid("textShape"), lst_txshp)
+    dsc_setd.putObject(cid("T   "), cid("TxLr"), dsc_txlr)
+    app.executeAction(cid("setd"), dsc_setd, ps.DialogModes.DisplayNoDialogs)
 
     return layer
 
-
-def fit_text(text_layer, ref_layer, padding=False):
-    if not padding: padding = text_layer.textItem.position[0]-ref_layer.bounds[0]
-    height = (ref_layer.bounds[3]-ref_layer.bounds[1]) - padding*2
-    right = ref_layer.bounds[2]-padding
+def fit_text(text_layer, ref_layer, padding:int=False, post_frame:bool=True):
+    """
+    Resize text in text_layer down until it fits inside ref_layer, with optional padding.
+    """
+    txt_b = bounds_nofx(text_layer)
+    ref_b = bounds_nofx(ref_layer)
+    if not padding: padding = txt_b[0]-ref_b[0]
+    height = (ref_b[3]-ref_b[1]) - padding*2
+    right = ref_b[2]-padding
     txt = text_layer.textItem
-    while text_layer.bounds[3]-text_layer.bounds[1] > height or text_layer.bounds[2] > right:
+    while txt_b[3]-txt_b[1] > height or txt_b[2] > right:
         size = txt.size-0.2
         txt.size = size
         txt.leading = size
-    return True
+        txt_b = bounds_nofx(text_layer)
+    if post_frame: frame(text_layer, ref_b, resize=False)
 
 
-def place_image(layer, file, p=None):
-    if [i > 0 for i in layer.bounds] == [True]*4 and path.splitext(file)[1] in [".png", ".gif", ".jpg", ".jpeg"]:
-        layer = add_layer(layer)
-    desc1 = ps.ActionDescriptor()
-    desc1.putInteger(cid("Idnt"), layer.id)
-    desc1.putPath(cid("null"), file)
-    desc1.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcsa"))
-    desc2 = ps.ActionDescriptor()
-    desc2.putUnitDouble( cid("Hrzn"), cid("Pxl "), 0)
-    desc2.putUnitDouble( cid("Vrtc"), cid("Pxl "), 0)
-    desc1.putObject(cid("Ofst"), cid("Ofst"), desc2)
-    if p:
-        desc1.putUnitDouble(cid("Hght"), cid("#Prc"), p)
-        desc1.putUnitDouble(cid("Wdth"), cid("#Prc"), p)
-    app.executeAction(cid("Plc "), desc1, ps.DialogModes.DisplayNoDialogs)
+def fit_text_oneline(text_layer, ref_layer, loc:str="left", padding:int=False, post_frame:bool=False):
+    """
+    Resize text in text_layer down to fit inside ref_layer, with optional padding.
+    For use on non-paragraph text.
+    """
+    txt_b = text_layer.bounds
+    ref_b = ref_layer.bounds
+    txt_w, txt_h = bounds_to_dimensions(txt_b).values()
+    ref_w, ref_h = bounds_to_dimensions(ref_b).values()
+    if not padding: padding = txt_b[0]-ref_b[0] # Default padding is delta of left bounds
+    if loc == "inside":
+        ratio = min(
+            (ref_w - padding * 2) / txt_w, # Ratio of widths
+            (ref_h - padding * 2) / txt_h, # Ratio of heights
+            1,
+            )
+    else:
+        side = 0 if loc == "left" else 2
+        target_w = abs(ref_b[side]-txt_b[side])-padding
+        ratio = min(target_w / txt_w, 1)
+    old_size = text_layer.textItem.size
+    text_layer.textItem.size *= ratio
+    text_layer.textItem.baselineShift = (old_size - text_layer.textItem.size) * 0.32
+    if post_frame:
+        frame(text_layer, ref_b, resize=False)
 
+
+def layer_empty(layer) -> bool:
+    try:
+        return all(b == 0 for b in layer.bounds)
+    except:
+        return None
+
+
+def place_image(layer, file, percent=None):
+    """Places images on target layer; or if that layer is not blank, onto a new layer."""
+    offset = 0
+    if not layer_empty(layer) or ".svg" in file:
+        offset = 1
+    active_layer(layer)
+    dsc_plc = ps.ActionDescriptor()
+    dsc_plc.putInteger(sid("ID"), layer.id + offset)
+    dsc_plc.putPath(cid("null"), file)
+    dsc_plc.putEnumerated(cid("FTcs"), cid("QCSt"), cid("Qcsa"))
+    dsc_ofst = ps.ActionDescriptor()
+    dsc_ofst.putUnitDouble( cid("Hrzn"), cid("Pxl "), 0)
+    dsc_ofst.putUnitDouble( cid("Vrtc"), cid("Pxl "), 0)
+    dsc_plc.putObject(cid("Ofst"), cid("Ofst"), dsc_ofst)
+    if percent:
+        dsc_plc.putUnitDouble(cid("Wdth"), cid("#Prc"), percent)
+        dsc_plc.putUnitDouble(cid("Hght"), cid("#Prc"), percent)
+    dsc_plc.putBoolean(cid("AntA"), True)
+    app.executeAction(cid("Plc "), dsc_plc, ps.DialogModes.DisplayNoDialogs)
+    if ".svg" in file:
+        app.executeAction(cid("Mrg2"), ps.ActionDescriptor())
     return app.activeDocument.activeLayer
 
 
-cfg_path = path.join(path.dirname(__file__), "config.ini")
-class MyConfig(Config):
-    def __init__(self, conf=cfg_path):
-        super().__init__(conf)
+def active_layer(layer, mkvs=False):
+    desc_slct = ps.ActionDescriptor()
 
-    def load(self):
-        self.move_art = self.file.getboolean("GENERAL", "Move.Art")
-        self.blank_creature_copy = self.file.getboolean("GENERAL", "Blank.Creature.Copy")
-        self.hollow_mana = self.file.getboolean("GENERAL", "Hollow.Mana")
-        self.side_pins = self.file.getboolean("FULLART", "Side.Pinlines")
-        self.borderless = self.file.getboolean("FULLART", "Borderless")
-        self.crt_filter = self.file.getboolean("PIXEL", "CRT.Filter")
-        self.invert_mana = self.file.getboolean("PIXEL", "Invert.Mana")
-        self.symbol_bg = self.file.getboolean("PIXEL", "Symbol.BG")
+    ref_null = ps.ActionReference()
+    ref_null.putIdentifier(cid("Lyr "), layer.id)
+    desc_slct.putReference(cid("null"), ref_null)
+    desc_slct.putBoolean(cid("MkVs"), mkvs)
 
-    def update(self):
-        self.file.set("GENERAL", "Move.Art", str(self.move_art))
-        self.file.set("GENERAL", "Blank.Creature.Copy", str(self.blank_creature_copy))
-        self.file.set("GENERAL", "Hollow.Mana", str(self.hollow_mana))
-        self.file.set("FULLART", "Side.Pinelines", str(self.side_pins))
-        self.file.set("FULLART", "Borderless", str(self.borderless))
-        self.file.set("PIXEL", "CRT.Filter", str(self.crt_filter))
-        self.file.set("PIXEL", "Invert.Mana", str(self.invert_mana))
-        self.file.set("PIXEL", "Symbol.BG", str(self.symbol_bg))
-        with open("config.ini", "w", encoding="utf-8") as ini:
-            self.file.write(ini)
-presh_config = MyConfig(cfg_path)
-presh_config.load()
+    app.executeAction(cid("slct"), desc_slct)
+
+
+def dupe_layer(layer, name: str=None, doc=None):
+
+    ref_null = ps.ActionReference()
+    ref_null.putIdentifier(cid("Lyr "), layer.id)
+    desc_dplc = ps.ActionDescriptor()
+    desc_dplc.putReference(cid("null"), ref_null)
+    if name: desc_dplc.putString(cid("Nm  "), name)
+    desc_dplc.putInteger(cid("Vrsn"), 5) # What do
+
+    # list_idnt = ps.ActionList()
+    # list_idnt.putInteger(3726)
+    # desc_dplc.putList(cid("Idnt"), list_idnt)
+
+    app.executeAction(cid("Dplc"), desc_dplc)
+    return doc.activeLayer
+
+
+def isolate_layers(layer: ArtLayer|LayerSet):
+    """Inverts back to normal if called again with same layer target."""
+    ref = ps.ActionReference()
+    ref.putIdentifier(sid("layer"), layer.id)
+    lst = ps.ActionList()
+    lst.putReference(ref)
+    dsc = ps.ActionDescriptor()
+    dsc.putList(cid("null"), lst)
+    dsc.putBoolean(cid("TglO"), True)
+    app.executeAction(cid("Shw "), dsc)
+
+
+def replace_text(layer, find, repl, **kwargs):
+    if isinstance(layer, int): id = layer
+    else: id = layer.id
+    regex = kwargs.get("regex", False)
+
+    ref = ps.ActionReference()
+    ref.putProperty(sid("property"), sid("textKey"))
+    ref.putIdentifier(sid("layer"), id)
+    dsc_setd = app.executeActionGet(ref)
+    textkey_dsc = dsc_setd.getObjectValue(sid("textKey"))
+    original = textkey_dsc.getString(sid("textKey"))
+
+    replaced = ""
+    pre_posits = []
+    post_posits = []
+    if regex:
+        if not re.search(r"^\([\S\s]*\)$", find): find = rf"({find})" # For splitting
+        pre_posits = [f.span() for f in re.finditer(find, original)]
+        start = 0
+        for span in pre_posits:
+            replaced += original[start:span[0]]
+            post_start = len(replaced)
+            replaced += re.sub(find, repl, original[span[0]:span[1]])
+            post_end = len(replaced)
+            post_posits += [(post_start, post_end)]
+            start = span[1]
+    else:
+        olen = len(find)
+        rlen = len(repl)
+        delta = rlen-olen
+        if find not in original: return False # No result
+        start = 0
+        end = 0
+        tdelta = 0
+        while find in original[start:]:
+            start += original[start:].find(find)
+            replaced += original[end:start]+repl
+            end = start + olen
+            pre_posits += [(start, end)]
+            post = (start+tdelta, start+tdelta+rlen)
+            post_posits += [post]
+            tdelta += delta
+            start += olen
+        replaced += original[start:]
+    textkey_dsc.erase(sid("textKey"))
+    textkey_dsc.putString(sid("textKey"), replaced)
+    old_ranges = []
+    new_ranges = []
+    for text_range in ["textStyleRange", "paragraphStyleRange", "kerningRange"]:
+        total_delta = 0
+        if textkey_dsc.hasKey(sid(text_range)):
+            old_ranges += [[]]
+            new_ranges += [[]]
+            tssr_lst = textkey_dsc.getList(sid(text_range))
+            new_range = ps.ActionList()
+            for i in range(tssr_lst.count):
+                tssr_dsc = tssr_lst.getObjectValue(i)
+                start = tssr_dsc.getInteger(sid("from"))
+                end = tssr_dsc.getInteger(sid("to"))
+                old_ranges[-1] += [(start, end)]
+                start += total_delta
+                for posit in zip(pre_posits, post_posits):
+                    if start<posit[0][1]<=end:
+                        post = posit[1][1]-posit[1][0]
+                        pre = posit[0][1]-posit[0][0]
+                        delta = post-pre
+                        total_delta += delta
+                end += total_delta
+                new_ranges[-1] += [(start, end)]
+                tssr_dsc.erase(sid("from"))
+                tssr_dsc.putInteger(sid("from"), start)
+                tssr_dsc.erase(sid("to"))
+                tssr_dsc.putInteger(sid("to"), end)
+                new_range.putObject(
+                    sid(text_range),
+                    tssr_dsc
+                    )
+            textkey_dsc.erase(sid(text_range))
+            textkey_dsc.putList(sid(text_range), new_range)
+    ref = ps.ActionReference()
+    ref.putIdentifier(sid("layer"), id)
+    dsc_setd = ps.ActionDescriptor()
+    dsc_setd.putReference(cid("null"), ref)
+    dsc_setd.putObject(cid("T   "), cid("TxLr"), textkey_dsc)
+    app.executeAction(cid("setd"), dsc_setd)
+    return replaced

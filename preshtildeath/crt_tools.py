@@ -40,13 +40,13 @@ def index_color(colors=24, m="uniform"):
 def pattern_make(file):
     name = os.path.splitext(os.path.basename(file))[0]
     doc = app.load(file)
-    desc1 = ps.ActionDescriptor()
     ref1 = ps.ActionReference()
-    ref2 = ps.ActionReference()
     ref1.putClass(cid("Ptrn"))
+    desc1 = ps.ActionDescriptor()
     desc1.putReference(cid("null"), ref1)
+    ref2 = ps.ActionReference()
     ref2.putProperty(cid("Prpr"), cid("fsel"))
-    ref2.putEnumerated(cid("Dcmn"), cid("Ordn"), cid("Trgt"))
+    ref2.putIdentifier(cid("Dcmn"), doc.id)
     desc1.putReference(cid("Usng"), ref2)
     desc1.putString(cid("Nm  "), name)
     app.executeAction(cid("Mk  "), desc1, 3)
@@ -110,13 +110,15 @@ def chroma_shift(layer, delta):
     app.activeDocument.activeLayer = old_layer
 
 
-def lens_blur(layer, radius, bright=0, threshold=255, noise_amount=0, mono=False):
-    old_layer = app.activeDocument.activeLayer
-    app.activeDocument.activeLayer = layer
+def lens_blur(radius: int, bright=0, threshold=255, noise_amount=0, mono=False, depth_mask=None, invert=False):
     desc = ps.ActionDescriptor()
-    desc.putEnumerated(cid("BkDi"), cid("BtDi"), cid("BeIn"))
     desc.putInteger(cid("BkDp"), 0)
-    desc.putBoolean(cid("BkDs"), False)
+    if depth_mask:
+        desc.putEnumerated(cid("BkDi"), cid("BtDi"), cid("BeIt"))
+        desc.putEnumerated(cid("BkDc"), cid("BtDc"), cid("BeCm"))
+        desc.putBoolean(cid("BkDs"), invert)
+    else:
+        desc.putEnumerated(cid("BkDi"), cid("BtDi"), cid("BeIn"))
     desc.putEnumerated(cid("BkIs"), cid("BtIs"), cid("BeS6"))  # Hex default
     desc.putDouble(cid("BkIb"), radius)
     desc.putInteger(cid("BkIc"), 0)
@@ -126,59 +128,58 @@ def lens_blur(layer, radius, bright=0, threshold=255, noise_amount=0, mono=False
     desc.putInteger(cid("BkNa"), noise_amount)
     desc.putEnumerated(cid("BkNt"), cid("BtNt"), cid("BeNg"))
     desc.putBoolean(cid("BkNm"), mono)
-    app.executeAction(cid("Bokh"), desc, 3)
-    app.activeDocument.activeLayer = old_layer
+    app.executeAction(cid("Bokh"), desc)
 
 
 def img_resize(
     doc,
-    w_percent=0,
-    h_percent=0,
-    resolution=0,
-    method="bicubicAutomatic",
+    w_percent: int=100,
+    h_percent: int=100,
+    resolution: int=None,
+    resample="bicubicAutomatic",
     constraint=True,
 ):
-    resample = {
-        "nearest": cid("Nrst"),
-        "bicubicSharper": sid("bicubicSharper"),
-        "bicubicAutomatic": sid("bicubicAutomatic"),
-    }
-    old_doc = app.activeDocument
+    """
+    doc: The Document to be resized.
+    w_percent: Percent width.
+    h_percent: Percent height.
+    resolution: Document resolution.
+    resample: "nearestNeighbor", "bicubicSharper", "bicubicAutomatic" valid strings.
+    constraint: Don't remember, I think it locks proportions if scaling by resolution.
+    """
     app.activeDocument = doc
-    desc = ps.ActionDescriptor()
-    if w_percent != 0 and h_percent != 0:
-        desc.putUnitDouble(cid("Wdth"), cid("#Prc"), w_percent)
-        desc.putUnitDouble(cid("Hght"), cid("#Prc"), h_percent)
-    if resolution == 0:
+    dsc = ps.ActionDescriptor()
+    ref = ps.ActionReference()
+    ref.putIdentifier(sid("document"), doc.id)
+    dsc.putReference(sid("null"), ref)
+    if w_percent != 100 and h_percent != 100:
+        dsc.putUnitDouble(cid("Wdth"), cid("#Prc"), w_percent)
+        dsc.putUnitDouble(cid("Hght"), cid("#Prc"), h_percent)
+    if not resolution:
         resolution = doc.resolution * max(w_percent, h_percent) / 100
-    desc.putUnitDouble(cid("Rslt"), cid("#Rsl"), resolution)
-    desc.putBoolean(cid("CnsP"), constraint)
-    desc.putBoolean(sid("scaleStyles"), True)
-    desc.putEnumerated(cid("Intr"), cid("Intp"), resample[method])
-    app.executeAction(cid("ImgS"), desc, 3)
-    app.activeDocument = old_doc
+    dsc.putUnitDouble(cid("Rslt"), cid("#Rsl"), resolution)
+    dsc.putBoolean(cid("CnsP"), constraint)
+    dsc.putBoolean(sid("scaleStyles"), True)
+    dsc.putEnumerated(cid("Intr"), cid("Intp"), sid(resample))
+    app.executeAction(cid("ImgS"), dsc)
 
 
 def blow_up(filter):
 
     doc = app.activeDocument
 
-    if filter:
-        img_resize(doc, 900, 900, 900, "nearest")
+    if not filter:
         doc.flatten()
-        default_colors()
-        color_exchange()
-        crt_filter()
-    else:
-        img_resize(doc, 800, 800, 800, "nearest")
+        img_resize(doc, 800, 800, 800, "nearestNeighbor")
         delta = doc.resolution / 8
         doc.crop([-delta, -delta, doc.width + delta, doc.height + delta])
-
-
-def crt_filter():
+        return doc
+    doc.flatten()
+    img_resize(doc, 900, 900, 900, "nearestNeighbor")
+    default_colors()
+    color_exchange()
 
     # Set up some files
-    doc = app.activeDocument
     ass_path = os.path.join(os.path.dirname(__file__), "assets")
     crt_file = os.path.join(ass_path, "crt9x9.png")
     rgb_file = os.path.join(ass_path, "rgb18x9.png")
@@ -186,18 +187,18 @@ def crt_filter():
     g_file = os.path.join(ass_path, "g18x9.png")
     b_file = os.path.join(ass_path, "b18x9.png")
     scan_file = os.path.join(ass_path, "scan1x9.png")
-    base_layer = doc.artLayers[0]
+    base_layer = doc.artLayers[0] # Background layer
     filters = doc.layerSets.add()
     filters.name = "Filters"
 
     # Extend borders for later spherize
     original_w = doc.width
     original_h = doc.height
-    hw, hh = original_w/2, original_h/2
-    rad = (hw**2 + hh**2) ** 0.5
+    center_w, center_h = original_w/2, original_h/2
+    rad = (center_w**2 + center_h**2) ** 0.5
     rad -= rad%9
     post_delta = doc.resolution / 8
-    l, t, r, b = hw-rad, hh-rad, hw+rad, hh+rad
+    l, t, r, b = center_w-rad, center_h-rad, center_w+rad, center_h+rad
     l += l%9
     t += t%9
     r -= r%9
@@ -229,7 +230,8 @@ def crt_filter():
     lcdlayer = lcdlayer.merge()
     # lcdlayer.fillOpacity = 40
     lcdlayer.applyMedianNoise(1)
-    lens_blur(lcdlayer, 2, 30, 216)
+    doc.activeLayer = lcdlayer
+    lens_blur(2, 30, 216)
     lcdlayer.fillOpacity = 30
     lcdlayer.name = "lcdlayer"
 
@@ -248,7 +250,8 @@ def crt_filter():
     red_mask = doc.artLayers.add()
     red_mask.move(r_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(red_mask, r_file, 10, 10)
-    lens_blur(red_mask, 1, noise_amount=1)
+    doc.activeLayer = red_mask
+    lens_blur(1, noise_amount=1)
     red_mask.blendMode = ps.BlendMode.Multiply
     red_mask = red_mask.merge()
     red_mask.applyMaximum(0.6)
@@ -256,7 +259,8 @@ def crt_filter():
     green_mask = doc.artLayers.add()
     green_mask.move(g_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(green_mask, g_file, 10, 10)
-    lens_blur(green_mask, 1, noise_amount=1)
+    doc.activeLayer = green_mask
+    lens_blur(1, noise_amount=1)
     green_mask.blendMode = ps.BlendMode.Multiply
     green_mask = green_mask.merge()
     green_mask.applyMaximum(0.6)
@@ -265,7 +269,8 @@ def crt_filter():
     blue_mask = doc.artLayers.add()
     blue_mask.move(b_layer, ps.ElementPlacement.PlaceBefore)
     pattern_fill(blue_mask, b_file, 10, 10)
-    lens_blur(blue_mask, 1, noise_amount=1)
+    doc.activeLayer = blue_mask
+    lens_blur(1, noise_amount=1)
     blue_mask.blendMode = ps.BlendMode.Multiply
     blue_mask = blue_mask.merge()
     blue_mask.applyMaximum(0.6)
@@ -276,7 +281,8 @@ def crt_filter():
     rgblayer.name = "rgblayer"
     rgblayer.blendMode = ps.BlendMode.LinearDodge
     chroma_shift(rgblayer, 1)
-    lens_blur(rgblayer, 2, 40, 216, 1)
+    doc.activeLayer = rgblayer
+    lens_blur(2, 40, 216, 1)
     rgblayer.applyMaximum(0.8)
     rgblayer.fillOpacity = 70
 
@@ -302,11 +308,11 @@ def crt_filter():
 
     new_hw, new_hh = doc.width/2, doc.height/2
     l, t, r, b = (
-        new_hw - hw - post_delta,
-        new_hh - hh - post_delta,
-        new_hw + hw + post_delta,
-        new_hh + hh + post_delta,
+        new_hw - center_w - post_delta,
+        new_hh - center_h - post_delta,
+        new_hw + center_w + post_delta,
+        new_hh + center_h + post_delta,
     )
     # l, t, r, b = d, d, original_w+d, original_h+d
     doc.crop([l, t, r, b])
-    img_resize(doc, resolution=800, method="bicubicSharper")
+    img_resize(doc, resolution=800, resample="bicubicSharper")

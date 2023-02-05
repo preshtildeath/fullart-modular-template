@@ -1,0 +1,34 @@
+[
+  {
+    "type": "bool",
+    "title": "[b]Move Art[/b]",
+    "desc": "Moves art file into a /finished/ folder after it has been used to render an image.\n[b](Default: True)[/b]",
+    "section": "GENERAL",
+    "key": "Move.Art",
+    "default": "1"
+  },
+  {
+    "type": "bool",
+    "title": "[b]CRT Filter[/b]",
+    "desc": "Apply a CRT style filter to the final render.\n[b](Default: True)[/b]",
+    "section": "GENERAL",
+    "key": "CRT.Filter",
+    "default": "1"
+  },
+  {
+    "type": "bool",
+    "title": "[b]Inverted Mana[/b]",
+    "desc": "Invert the colors of the mana symbols, may be a little easier to read.\n[b](Default: False)[/b]",
+    "section": "GENERAL",
+    "key": "Invert.Mana",
+    "default": "0"
+  },
+  {
+    "type": "bool",
+    "title": "[b]Symbol Background[/b]",
+    "desc": "Turn on or off the background to symbols.\n[b](Default: False)[/b]",
+    "section": "GENERAL",
+    "key": "Symbol.BG",
+    "default": "0"
+  }
+]

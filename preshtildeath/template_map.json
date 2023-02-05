@@ -2,25 +2,34 @@
 	"normal": {
 		"Fullart Modular": "FullArtModularTemplate",
 		"Fullart Textlesss": "FullArtTextlessTemplate",
-		"Pixel Modular": "PixelModularTemplate"
+		"Fullart Weeb": "FullArtWeeb",
+		"Pixel Modular": "PixelModularTemplate",
+		"Universes Beyond": "UniversesBeyond",
+		"Equinox": "Equinox",
+		"Invocation": "Invocation"
 	},
 	"ixalan": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Fullart Modular": "DFCModularTemplate",
+		"Fullart Weeb": "FullArtWeeb"
 	},
 	"basic": {
 		"Fullart Modular": "BasicModularTemplate"
 	},
 	"transform_front": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Fullart Modular": "DFCModularTemplate",
+		"Fullart Weeb": "FullArtWeeb"
 	},
 	"transform_back": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Fullart Modular": "DFCModularTemplate",
+		"Fullart Weeb": "FullArtWeeb"
 	},
 	"mdfc_front": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Fullart Modular": "DFCModularTemplate",
+		"Fullart Weeb": "FullArtWeeb"
 	},
 	"mdfc_back": {
-		"Fullart Modular": "DFCModularTemplate"
+		"Fullart Modular": "DFCModularTemplate",
+		"Fullart Weeb": "FullArtWeeb"
 	},
 	"planeswalker": {
 		"Fullart Modular": "PWFullArtModularTemplate"
